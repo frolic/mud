@@ -350,7 +350,7 @@ Because handles are ordinary types, behavior accretes in libraries:
 
 **Shared-lib growth (framework PRs, zero regeneration).** Adding `setItem`/`slice`/`splice` to `Uint32ArrayFieldMethods` lights up every array field in every table ever generated. [#2019](https://github.com/latticexyz/mud/issues/2019) collapses from "extend the generator and regenerate the ecosystem" to "add three functions to one library." Same for `RecordMethods` (e.g. a future `copyTo(Record)`).
 
-**Extension methods (user/third-party packs).** There is one mechanism in this design: method libraries. The only distinction — enforced by the language, not by convention — is that `using ... global` is legal only in the type's defining file, so **canonical** methods (`Int32FieldMethods`) are ambient everywhere, while everyone else's methods attach per-file. An "extension" is just a method library you attach yourself — against field handles, per-table record types, or user UDVTs:
+**Extension methods (user/third-party packs).** There is one mechanism in this design: method libraries. The only distinction — enforced by the language, not by convention — is that `using ... global` is legal only in the type's defining file, so **canonical** methods (`Int32FieldMethods`) are ambient everywhere, while everyone else's methods attach per-file. An "extension" is just a method library you attach yourself — against field handles, per-table record types, or user UDVTs. The `<Type>Methods` naming is the SDK's convention; user and third-party packs name theirs freely — the ecosystem may well call these "traits", and that's fine: same mechanism either way:
 
 ```solidity
 library CounterMethods {
