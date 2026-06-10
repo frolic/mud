@@ -386,6 +386,7 @@ Honest accounting (estimates to be confirmed by the benchmark plan below):
 - **Default path**: unchanged from v2 no-prefix methods (same `StoreSwitch` SLOAD).
 - **Bytecode**: internal functions are included only when referenced and deduplicate per function — multi-table contracts shrink (one `Int32FieldMethods.get` instead of N inlined casts); a single-table/single-field contract grows slightly. Extension-method breadth costs nothing until called. Generated _source_ shrinks dramatically (compile time, artifacts).
 - **Workload-shaped benchmarks** (DUST profile): a move-loop (warm field reads ×N), an inventory scan (`length` + `getItem` ×N), record get/mutate/set, both compiler pipelines, `forge snapshot` diff against v2 output. Stretch goal: port one real DUST system.
+- **Handle-layout A/B**: the `FieldLayout`-placement decision (§2 — on `Record` vs injected at call sites) was made on design-hygiene grounds with the gas argued to be a wash; benchmark both variants across the workload set (record-op-heavy, single-field-heavy, multi-field-per-record, generic `RecordMethods` ops) to confirm with numbers. Same treatment for `Record` packing generally (open question 4) — the struct's word count multiplies across every access, so small layout choices deserve measured, not argued, answers.
 
 ## 9. Rejected alternatives (and why)
 
