@@ -456,6 +456,16 @@ Honest accounting (estimates to be confirmed by the benchmark plan below):
 6. Migration story: codemod for v2 call sites (`Table.getX(k)` → `Table(k).x().get()`, `Table._set(k, v)` → `Table(k).own().set(v)`), and whether a v2-compat shim layer is worth generating during transition.
 7. Offchain-table ergonomics: setter-only manifest variant?
 
+## EIP revision notes
+
+v3 treats the store event emissions as frozen. But three EIP-impacting items surfaced during this design — recorded here so any future EIP iteration starts from them rather than rediscovering them:
+
+1. **Splice-event addressing: bytes vs fields** ([#2222](https://github.com/latticexyz/mud/issues/2222) vs [#1222](https://github.com/latticexyz/mud/issues/1222)). The shipped events are byte-addressed and schema-independent (deliberately, per #1222): indexers can sync records as raw blobs, fully parallel, with no schema-ordering dependency in the event stream. #2222 proposes field-aware events (field index, or element offsets instead of byte offsets) — simpler per-field offchain modeling and less offset translation in table libs, but it cements one-splice-one-field and requires a layout-aware kernel (StoreCore would need `FieldLayout` to convert elements→bytes). These directions diverge rather than compose, and v3's architecture (range-based kernel, element→byte translation in shared field methods, `Schema` out of code paths) doubles down on the byte-addressed side — so adopting #2222 later would mean walking back part of the kernel design. **Decide this fork first in any revision.**
+2. **The 5-dynamic-field cap is event-format, not implementation** ([#1463](https://github.com/latticexyz/mud/issues/1463)). `EncodedLengths` packs 5×uint40 lengths + a 56-bit accumulator into the one bytes32 carried by `Store_SetRecord` and `Store_SpliceDynamicData`. Raising the cap means a new lengths encoding in events — an EIP change by definition. A revision could reconsider the packing (wider word, variable-length encoding) against the 28-total-field ceiling that `FieldLayout`/`Schema` share.
+3. **How much of the registration shape the EIP pins** (touches cleanup item 3, registration-as-data, and [#2711](https://github.com/latticexyz/mud/issues/2711)). Registration is "ordinary records written to the `Tables` table," so its shape (`fieldLayout`, `keySchema`, `valueSchema`, abi-encoded `keyNames`/`fieldNames`) flows through standard events — the question is whether the EIP text specifies that table's schema or treats it as an implementation detail. The answer gates: collapsing `Schema` to registration-only data, changing name encodings (#2711's bytes32 names), and batch registration shapes. **Action item: read the EIP text and mark each registration field as pinned or free before the cleanup pass touches any of them.**
+
+(Confirmed _not_ EIP-bound, for contrast: store hooks, the storage slot scheme, and everything in the read path — those are freely rewritable.)
+
 ## Appendix: issue tracker cross-reference
 
 Open issues this design addresses, should address, or consciously cannot:
