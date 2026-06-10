@@ -100,6 +100,20 @@ These libs are enumerable from `SchemaType` and can themselves be generated — 
 - Systems, `WorldConsumer`, hooks: API-compatible usage; they consume the same handles. The world package may ship an alias method (e.g. `root()` → `own()`) as world-flavored sugar — see §7.
 - `renderWithStore` / store-argument variants disappear from world codegen the same way.
 
+### Cleanup pass: kernel reduction (planned, sized but not yet designed in detail)
+
+The store event emissions are an EIP and stay frozen — which means the protocol kernel is exactly four writes (`Store_SetRecord`, `Store_SpliceStaticData`, `Store_SpliceDynamicData`, `Store_DeleteRecord`). Much of the current onchain surface is convenience that accreted around that kernel because v2's generated tables had nowhere shared to put it. The shared method libraries are that place, so the onchain surface can contract toward the kernel itself:
+
+1. **Shrink `IStoreWrite` to the four event-mirroring primitives.** Five of today's nine write methods are expressible as splices (`setStaticField` IS a static splice; `setDynamicField` = splice(0, oldLen); `push` = splice(end, 0); `pop` = splice(end−n, n)) and move into the field method libs. Deletes ~5 methods × (ABI + `StoreCore` impl + `StoreSwitch` mirror + hook touchpoints), and kills the dual indexing scheme (global `fieldIndex` vs relative `dynamicFieldIndex`) — the only addressing left is static byte range and dynamic field N byte range. `StoreSwitch` (~580 lines of per-method mirrors) shrinks to the kernel and is absorbed into the `StoreAccess` dispatch. Hooks follow the kernel: 4 ops × before/after.
+2. **Symmetric range reads.** The read side has no EIP constraint: today's seven read methods reduce to `getRecord`, `getStaticSlice(range)`, `getDynamicSlice(field, range)`, `getDynamicLength(field)` — mirroring the splice writes. Bonus capability: a range read can fetch adjacent packed fields (`x`+`y`) in one call, which no current method can.
+3. **Collapse `Schema` into `FieldLayout`.** Two bytes32 encodings of overlapping information, each with its own lib, validation, and codegen renderer — and `FieldLayout` is derivable from `Schema`. Onchain code paths only need the layout; type information is registration _data_ read by offchain consumers from the `Tables` table. Keep schemas as data, delete `Schema` as an onchain code path. (Check whether the EIP text pins the `Tables` table's registration shape — if so the encoding stays while the redundant Solidity lib still goes.)
+4. **Fold `tightcoder` and most of `Bytes`/`Slice` into the field methods.** `EncodeArray`/`DecodeSlice`/`TightCoder` are generated-per-type framework Solidity whose only consumers are generated table casts; `Bytes.getBytes1..32` (64 overloads) and the public `Slice` type exist to serve them. In v3 each per-type codec lives in exactly one field method lib, so the tightcoder sub-package, its codegen pipeline, and most of `Bytes.sol` fold in; `Slice` stops being public API.
+5. **Flatten the interface and base towers.** Six interfaces (`IStore` = `IStoreKernel` + `IStoreRegistration`; kernel = `IStoreRead` + `IStoreWrite` + `IStoreErrors` + `IStoreEvents`) and four bases (`Store`/`StoreRead`/`StoreData`/`StoreKernel`) for one concept → `IStore`, `IStoreHook`, one `Store` base.
+
+Out of scope for this spec but same philosophy: the World layer's generated surface (per-system interfaces, composed `IWorld`, system libraries with their own call-variant multiplication) wants the same manifest + handle treatment; and the TS config layer (`ts/config/v2` type-level gymnastics) could keep its typed output while moving validation to plain runtime code.
+
+Explicitly untouched: event formats and `EncodedLengths`-in-events (EIP), the `bytes32[]` keyTuple (events), and the storage slot scheme (not frozen — events ≠ storage — but good, and changing it buys nothing while breaking in-place upgrades).
+
 ## 3. Codegen output (the per-table manifest)
 
 For this config:
