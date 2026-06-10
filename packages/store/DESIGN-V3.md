@@ -75,12 +75,12 @@ Notes on the shape:
 
 ### New shared Solidity (written or generated once, framework-wide)
 
-| Component                                     | Contents                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Record.sol`                                  | `struct Record { ResourceId tableId; bytes32[] keyTuple; FieldLayout fieldLayout; address store; }` + `RecordLib` (`remove`, `raw` get/set, hook helpers). Table-agnostic; embedded in every table's record handle. Carrying `fieldLayout` (set from the table constant at entry; zero → `RecordLib` lazy-loads) gives generic `Record` ops full gas parity with typed paths — `record.remove()` and the table's `remove()` are the same call, the typed one a pure delegation; that's the deliberate seam between the typed layer (app code) and the generic layer (infra code). Deliberately **no `exists()`**: MUD has no existence bit — deletion zeroes storage, so an all-default record is indistinguishable onchain from a never-set one, and any storage-based check false-negatives on legitimately zero-valued records (e.g. a table of `false` booleans). Existence is an app-level convention (sentinel field, as in DUST's `EntityObjectType != 0`) or an offchain fact (indexers track set/delete events). |
-| Static field handles, one per static ABI type | e.g. `Int32Field { Record record; uint8 index; }` + `Int32FieldLib`: `get`, `set` (layout read from `record.fieldLayout`). Contains the **only** copy of the per-type cast (`int32(uint32(bytes4(blob)))`) and encode (`abi.encodePacked`). The handle struct (~2 words) is the attachment point for user-type wrappers and traits.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| Dynamic field handles, one per element type   | e.g. `Uint32ArrayField { Record record; uint8 dynamicIndex; }` + `Uint32ArrayFieldLib`: `get`, `set`, `length`, `getItem`, `push`, `pop`, `update`, **`setItem`, `slice`, `splice`** (#2019). `BytesField`, `StringField` likewise.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| Store dispatch (inside the field/record libs) | Branch on `record.store`: `0` → `StoreSwitch` (unchanged, SLOAD inference), `address(this)` → `StoreCore` internal, else → `IStore(store)` external. This is `StoreSwitch`'s existing branch with the SLOAD made skippable when pinned.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Component                                     | Contents                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Record.sol`                                  | `struct Record { ResourceId tableId; bytes32[] keyTuple; FieldLayout fieldLayout; address store; }` + `RecordMethods` (`remove`, `raw` get/set, hook helpers). Table-agnostic; embedded in every table's record handle. Carrying `fieldLayout` (set from the table constant at entry; zero → `RecordMethods` lazy-loads) gives generic `Record` ops full gas parity with typed paths — `record.remove()` and the table's `remove()` are the same call, the typed one a pure delegation; that's the deliberate seam between the typed layer (app code) and the generic layer (infra code). Deliberately **no `exists()`**: MUD has no existence bit — deletion zeroes storage, so an all-default record is indistinguishable onchain from a never-set one, and any storage-based check false-negatives on legitimately zero-valued records (e.g. a table of `false` booleans). Existence is an app-level convention (sentinel field, as in DUST's `EntityObjectType != 0`) or an offchain fact (indexers track set/delete events). |
+| Static field handles, one per static ABI type | e.g. `Int32Field { Record record; uint8 index; }` + `Int32FieldMethods`: `get`, `set` (layout read from `record.fieldLayout`). Contains the **only** copy of the per-type cast (`int32(uint32(bytes4(blob)))`) and encode (`abi.encodePacked`). The handle struct (~2 words) is the attachment point for user-type wrappers and traits.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Dynamic field handles, one per element type   | e.g. `Uint32ArrayField { Record record; uint8 dynamicIndex; }` + `Uint32ArrayFieldMethods`: `get`, `set`, `length`, `getItem`, `push`, `pop`, `update`, **`setItem`, `slice`, `splice`** (#2019). `BytesField`, `StringField` likewise.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Store dispatch (inside the field/record libs) | Branch on `record.store`: `0` → `StoreSwitch` (unchanged, SLOAD inference), `address(this)` → `StoreCore` internal, else → `IStore(store)` external. This is `StoreSwitch`'s existing branch with the SLOAD made skippable when pinned.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 These libs are enumerable from `SchemaType` and can themselves be generated — but generated **once into the framework package**, not per project. Unused internal functions are never compiled into user contracts, so breadth is free.
 
@@ -117,7 +117,7 @@ codegen emits (signatures shown; bodies are one-liners except the record codec):
 
 ```solidity
 // codegen/tables/Position.sol
-import { Record, RecordLib } from "@latticexyz/store/src/Record.sol";
+import { Record, RecordMethods } from "@latticexyz/store/src/Record.sol";
 import { Int32Field, StringField, Uint32ArrayField } from "@latticexyz/store/src/fields/...";
 
 struct PositionData {
@@ -130,7 +130,7 @@ struct PositionData {
 struct PositionRecord {
   Record record;
 }
-using PositionRecordLib for PositionRecord global;
+using PositionRecordMethods for PositionRecord global;
 
 ResourceId constant _TABLE_ID = ResourceId.wrap(0x...);
 FieldLayout constant _FIELD_LAYOUT = FieldLayout.wrap(0x...);
@@ -146,7 +146,7 @@ function Position(address player) pure returns (PositionRecord memory r) {
   r.record.keyTuple[0] = bytes32(uint256(uint160(player)));
 }
 
-library PositionRecordLib {
+library PositionRecordMethods {
   // ── modifiers (chainable, one line each) ──
   function at(PositionRecord memory self, ResourceId tableId) internal pure returns (PositionRecord memory);
   function own(PositionRecord memory self) internal view returns (PositionRecord memory);            // = own(address(this))
@@ -158,7 +158,7 @@ library PositionRecordLib {
   function name(PositionRecord memory self) internal pure returns (StringField memory);              // dynamic 0
   function waypoints(PositionRecord memory self) internal pure returns (Uint32ArrayField memory);    // dynamic 1
 
-  // ── record ops (thin delegations to RecordLib + the codec below) ──
+  // ── record ops (thin delegations to RecordMethods + the codec below) ──
   function get(PositionRecord memory self) internal view returns (PositionData memory);
   function set(PositionRecord memory self, PositionData memory data) internal;
   function remove(PositionRecord memory self) internal;
@@ -201,9 +201,9 @@ struct Int32Field {
   Record record;
   uint8 index;
 }
-using Int32FieldLib for Int32Field global;
+using Int32FieldMethods for Int32Field global;
 
-library Int32FieldLib {
+library Int32FieldMethods {
   function get(Int32Field memory self) internal view returns (int32) {
     bytes32 blob = StoreAccess.getStaticField(self.record, self.index);
     return int32(uint32(bytes4(blob))); // the cast: once per ABI type, framework-wide
@@ -259,9 +259,9 @@ type EntityId is bytes32;
 struct EntityIdField {
   Bytes32Field inner;
 }
-using EntityIdFieldLib for EntityIdField global;
+using EntityIdFieldMethods for EntityIdField global;
 
-library EntityIdFieldLib {
+library EntityIdFieldMethods {
   function get(EntityIdField memory self) internal view returns (EntityId) {
     return EntityId.wrap(self.inner.get());
   }
@@ -303,9 +303,9 @@ enum Status {
 struct StatusField {
   Uint8Field inner;
 }
-using StatusFieldLib for StatusField global;
+using StatusFieldMethods for StatusField global;
 
-library StatusFieldLib {
+library StatusFieldMethods {
   function get(StatusField memory self) internal view returns (Status) {
     return Status(self.inner.get());
   }
@@ -348,7 +348,7 @@ The struct-field seam: in `PositionData`, a user-typed field is the bare UDVT; t
 
 Because handles are ordinary types, behavior accretes in libraries:
 
-**Shared-lib growth (framework PRs, zero regeneration).** Adding `setItem`/`slice`/`splice` to `Uint32ArrayFieldLib` lights up every array field in every table ever generated. [#2019](https://github.com/latticexyz/mud/issues/2019) collapses from "extend the generator and regenerate the ecosystem" to "add three functions to one library." Same for `RecordLib` (e.g. a future `copyTo(Record)`).
+**Shared-lib growth (framework PRs, zero regeneration).** Adding `setItem`/`slice`/`splice` to `Uint32ArrayFieldMethods` lights up every array field in every table ever generated. [#2019](https://github.com/latticexyz/mud/issues/2019) collapses from "extend the generator and regenerate the ecosystem" to "add three functions to one library." Same for `RecordMethods` (e.g. a future `copyTo(Record)`).
 
 **Traits (user/third-party packs).** Plain libraries against handle types — field handles, per-table record types, and user UDVTs — attached per-file:
 
@@ -384,7 +384,7 @@ Honest accounting (estimates to be confirmed by the benchmark plan below):
 - **Handle construction is memory-struct churn**: `Position(player)` allocates the `Record` + wrapper (~4–5 words) on top of the keyTuple alloc v2 already pays, and each field accessor allocates a ~2–3 word handle — together roughly 30–70 gas per accessor chain, likely less where via-IR elides non-escaping structs. Noise on writes (5k–20k+) and cold reads; a few-percent relative cost on warm reads in tight loops, mitigated by reusing handles (they're values — hoist the record or field handle when touching it repeatedly).
 - **`.own()` vs v2 `_get`**: worst case ~15–20 gas (MLOAD + compares); with via-IR inlining the `EQ(ADDRESS, ADDRESS)` comparison is CSE-foldable to the bare `StoreCore` call. Verifying this fold is an explicit acceptance criterion.
 - **Default path**: unchanged from v2 no-prefix methods (same `StoreSwitch` SLOAD).
-- **Bytecode**: internal functions are included only when referenced and deduplicate per function — multi-table contracts shrink (one `Int32FieldLib.get` instead of N inlined casts); a single-table/single-field contract grows slightly. Trait breadth costs nothing until called. Generated _source_ shrinks dramatically (compile time, artifacts).
+- **Bytecode**: internal functions are included only when referenced and deduplicate per function — multi-table contracts shrink (one `Int32FieldMethods.get` instead of N inlined casts); a single-table/single-field contract grows slightly. Trait breadth costs nothing until called. Generated _source_ shrinks dramatically (compile time, artifacts).
 - **Workload-shaped benchmarks** (DUST profile): a move-loop (warm field reads ×N), an inventory scan (`length` + `getItem` ×N), record get/mutate/set, both compiler pipelines, `forge snapshot` diff against v2 output. Stretch goal: port one real DUST system.
 
 ## 9. Rejected alternatives (and why)
@@ -395,6 +395,7 @@ Honest accounting (estimates to be confirmed by the benchmark plan below):
 - **`Position(tableId)` / `Position(tableId, key)` overloads**: collide with single-`ResourceId`-keyed tables; the canonical-id entry + `.at()` modifier avoids the collision class entirely.
 - **`.x` as struct member, `f(a)(b)` currying, auto-persisting records, partial struct literals**: ruled out by Solidity semantics (member access requires materializing all fields; function types can't close over values; memory writes have no observer; struct literals are total).
 - **Bound "draft"/snapshot records** (`snapshot()` with lazy load, buffered writes, dirty-bit `save()`): implementable (lazy load via memory mutation in `view` is legal; `save()` could coalesce adjacent dirty static fields into one splice), but rejected: a second generated per-table surface, dirty-bitmask branching on every access, and divergence hazards (a snapshot doesn't see external writes; two snapshots of one record don't sync). `get` → mutate → `set` plus chainable setters cover the flows.
+- **Free-function method sets** (`using { get, set } for Int32Field global` — no library, no name): verified to work with one handle type per file, and attachments travel with the type. But `using { f }` rejects any overloaded identifier (verified), so the `own()`/`own(addr)` pair cannot attach as free functions — records would need a library anyway, and a mixed free-function/library convention was rejected for consistency. Everything ships as `<Type>Methods` libraries; un-overloading `own` to rescue purity would trade a user-facing API regression for invisible naming cleanliness.
 - **Static-field value sugar** (`x()` returning `int32`, `x(value)` setting, chainable): briefly adopted on a "static op sets are closed" rationale, then reverted. Solidity can't overload on return type, so sugar displaces the handle — and user-typed static fields (enum `transition`, packed-vector codecs, wrapped ids) need the handle as their method attachment point, making static op sets open after all. The sugar saved one ~3-word allocation per access (~25–40 gas, likely optimizer-elided) and one token, at the cost of the §6 extension story and a primitive-vs-custom API split. Uniform handles won.
 - **Dual path (value sugar + handles for the same field)**: rejected — two spellings for one operation means users must always ask which to use.
 - **Nesting field accessors behind a member** (`.data.x()` / record ops behind `.meta`): taxes one of the two hot paths (fields 30% / record ops 56–65% of usage) for a namespace purity the rename rule already provides.
@@ -405,6 +406,6 @@ Honest accounting (estimates to be confirmed by the benchmark plan below):
 2. Recommended compiler posture for downstream projects (via-IR strongly encouraged?) and numbers on the legacy pipeline.
 3. Arrays of user types: element-wise wrap loop vs the assembly pointer-cast trick, owned by the framework-provided array-wrapper template.
 4. Record-handle packing: `keyTuple` as `bytes32[]` is flexible but allocation-heavy; is a fixed-size/inline encoding worth it for 1-key tables (the overwhelmingly common case)?
-5. Naming (resolved). Record deletion: `remove()` — `delete` is a Solidity keyword and thus impossible, `del` is an abbreviation, `remove` is ecosystem-idiomatic; `clear()` noted as the semantically precise alternative since deletion zeroes rather than removes existence. Table-id override: `at(tableId)` — `in` is a reserved keyword; `at` is unambiguous since keys bind at the entry function. Store owner: `own()` / `own(addr)` — one declarative concept, two arities; `local`/`core`/`via` superseded. Meta member: `record` — names its own type (`Record record;`, matching the field-handle convention), reads naturally (`.record.keyTuple`), and avoids `base`, a plausible game field name; a field named `record` falls under the standard rename rule. (`exists()` was cut from `RecordLib` entirely: no existence bit exists onchain, so any storage-based check is a footgun — see §2.)
+5. Naming (resolved). Record deletion: `remove()` — `delete` is a Solidity keyword and thus impossible, `del` is an abbreviation, `remove` is ecosystem-idiomatic; `clear()` noted as the semantically precise alternative since deletion zeroes rather than removes existence. Table-id override: `at(tableId)` — `in` is a reserved keyword; `at` is unambiguous since keys bind at the entry function. Store owner: `own()` / `own(addr)` — one declarative concept, two arities; `local`/`core`/`via` superseded. Meta member: `record` — names its own type (`Record record;`, matching the field-handle convention), reads naturally (`.record.keyTuple`), and avoids `base`, a plausible game field name; a field named `record` falls under the standard rename rule. (`exists()` was cut from `RecordMethods` entirely: no existence bit exists onchain, so any storage-based check is a footgun — see §2.) Method-set libraries: `<Type>Methods` suffix (`Int32FieldMethods`, `PositionRecordMethods`) — in a `using`-for world, v2's `Lib` says nothing while `Methods` names exactly what the library is; the `Lib`/`Instance` split is superseded. Handle types keep the `Field` suffix: user-type and enum handles can't share their UDVT/enum's name, dynamics collide with existing names (`Bytes` lib, `string` keyword), and `Int32` vs `int32` would put a case-only distinction on the API's biggest semantic difference (storage reference vs value).
 6. Migration story: codemod for v2 call sites (`Table.getX(k)` → `Table(k).x().get()`, `Table._set(k, v)` → `Table(k).own().set(v)`), and whether a v2-compat shim layer is worth generating during transition.
 7. Offchain-table ergonomics: setter-only manifest variant?
