@@ -279,9 +279,64 @@ library Vec3KeyCodec {
 
 Codegen's involvement is one import and one constructor call per field (`return EntityIdField(Bytes32Field(self.record, 0));`), plus calling the key codec inside the table entry function. It never sees the codec logic.
 
+### Enums, end to end
+
+Enums declared in config get the same treatment: codegen emits the enum and its (mechanical) field handle once per enum, and domain logic lands as a user trait — no codegen involvement past the handle.
+
+```ts
+enums: {
+  Status: ["Inactive", "Active", "Frozen"],
+},
+tables: {
+  Account: { schema: { user: "address", status: "Status" }, key: ["user"] },
+}
+```
+
+```solidity
+// codegen (once per enum, alongside the enum definition — stored as uint8, as today)
+enum Status {
+  Inactive,
+  Active,
+  Frozen
+}
+
+struct StatusField {
+  Uint8Field inner;
+}
+using StatusFieldLib for StatusField global;
+
+library StatusFieldLib {
+  function get(StatusField memory self) internal view returns (Status) {
+    return Status(self.inner.get());
+  }
+  function set(StatusField memory self, Status value) internal {
+    self.inner.set(uint8(value));
+  }
+}
+```
+
+```solidity
+// user code — domain logic attached without touching codegen
+library StatusTrait {
+  error InvalidTransition(Status expected, Status actual);
+
+  function transition(StatusField memory self, Status from, Status to) internal {
+    Status current = self.get();
+    if (current != from) revert InvalidTransition(from, current);
+    self.set(to);
+  }
+}
+using StatusTrait for StatusField;
+
+Status status = Account(user).status().get(); // typed, not uint8
+Account(user).status().transition(Status.Active, Status.Frozen);
+```
+
+The handle is what v2 enums lack: today an enum field is a `uint8` with a cast in the generated getter, and there is nowhere to hang `transition` — it ends up as a free function per table or copy-pasted requires. Here it's written once against `StatusField` and works on every `Status`-typed field in every table.
+
 This removes the current limitations wholesale, because the codec is open code instead of generator logic:
 
-- **Enums become real types** — a `StatusField` lib can expose `transition(from, to)`, not just a bare `uint8` wrap.
+- **Enums become real types** — a `StatusField` lib can expose `transition(from, to)`, not just a bare `uint8` wrap (full example above).
 - **Custom packings** — `type PackedVec2 is uint64` with `getX()/getY()/set(x, y)` over one storage primitive.
 - **Nesting** — `type ChunkId is EntityId`-style layering is ordinary struct composition; config only needs the ultimate primitive.
 - **Lossy key codecs** are a legitimate explicit choice (e.g. a `bytes32`-keyed name table using `keccak(name)`), documented as indexer-lossy.
