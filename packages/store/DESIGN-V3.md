@@ -62,6 +62,11 @@ Position(player).own(worldAddr).get();       // declare an explicit store (scrip
 
 // ── table id override (non-canonical table) ────────────────────────
 Position(player).at(tableId).get();
+
+// ── table level: the no-arg entry is the table handle ──────────────
+Position().register();                       // canonical id, inferred store
+Position().at(tableId).register();           // module: install under its caller's namespace
+Position().own(store).register();            // explicit store
 ```
 
 Notes on the shape:
@@ -118,28 +123,34 @@ The store event emissions are an EIP and stay frozen — which means the protoco
 
 ### Table registration and modules
 
-Registration becomes data plus one generic function. Codegen emits a `definition()` accessor returning everything registration needs; shared code does the rest:
+The no-arg entry overload is the **table handle** — completing the model (tables, records, and fields are all values):
 
 ```solidity
-struct TableDef {
-  ResourceId tableId;          // canonical id
+struct Table {
+  ResourceId tableId; // canonical id; at() retargets
   FieldLayout fieldLayout;
   Schema keySchema;
   Schema valueSchema;
   string[] keyNames;
   string[] fieldNames;
+  address store; // own() pins, as on records
 }
+// shared TableMethods (using ... for Table global): register, at, own
 
-// per-table codegen (pure, constants only):
-function definition() pure returns (TableDef memory);
-
-// shared TableDefMethods:
-PositionTableDef().register();                            // canonical id, inferred store
-PositionTableDef().at(tableId).register();                // module installing under its caller's namespace
-PositionTableDef().register(store);                       // explicit store
+// per-table codegen: one more entry overload, constants only
+function Position() pure returns (Table memory);
+function Position(address player) pure returns (PositionRecord memory); // as before — legal overload pair
 ```
 
-This answers [#3590](https://github.com/latticexyz/mud/issues/3590) (register a table lib under a different namespace without hand-encoding resource ids — `at()` takes the id, or a namespace-flavored overload derives it from namespace + the def's label) and gives modules a first-class path: install-time code reads the def, retargets it, registers, and then uses the same `at()` handle for writes. It also subsumes "registration as data" for deployment: the deployer can batch defs into one `registerTables(TableDef[])` call instead of N generated `register()` functions ([#1280](https://github.com/latticexyz/mud/issues/1280) is the world-side analog for function selectors). The `Tables` table and reflection ([#2550](https://github.com/latticexyz/mud/issues/2550)) remain the onchain source of truth for third parties without the codegen artifacts.
+```solidity
+Position().register();                       // canonical id, inferred store
+Position().at(tableId).register();           // module installing under its caller's namespace
+Position().own(store).register();            // explicit store
+```
+
+**Singleton tables** (`key: []`) are the one collision: their record entry is already the no-arg `Counter()`. Resolution: a singleton's table handle IS its record handle — the table is one record, so `Counter().get()`, `Counter().set(5)`, and `Counter().register()` coexist on one generated handle type (record verbs generated as usual, table verbs as thin delegations). Reading note: this puts `register` in the singleton field-name reserved set (no-arg, like `get`); the standard rename rule covers it.
+
+The generic layer stays available for code without the codegen artifacts: `TableMethods.register(table)` works on a hand-built `Table`, and a deployer can batch defs into one `registerTables(Table[])` call instead of N generated `register()` functions ([#1280](https://github.com/latticexyz/mud/issues/1280) is the world-side analog for function selectors). This answers [#3590](https://github.com/latticexyz/mud/issues/3590) (register a table lib under a different namespace without hand-encoding resource ids — `at()` takes the id, or a namespace-flavored overload derives it from namespace + the table's label) and gives modules a first-class path: retarget with `at()`, register, then use the same `at()` on record handles for writes. The `Tables` table and reflection ([#2550](https://github.com/latticexyz/mud/issues/2550)) remain the onchain source of truth for third parties.
 
 Out of scope for this spec but same philosophy: the World layer's generated surface (per-system interfaces, composed `IWorld`, system libraries with their own call-variant multiplication) wants the same manifest + handle treatment; The TS config layer's type-level validate-then-transform architecture stays: type-level validation is load-bearing, not gymnastics — the output types are only safely derivable from _validated_ input types, and the validation layer is what produces precise compile-time errors at the exact config location (including replacing bad fragments with error-message types). Any simplification there is internal refactoring under the same architecture.
 
@@ -473,7 +484,7 @@ Open issues this design addresses, should address, or consciously cannot:
 | Issue                                                                                                                                                                                     | Status in this design                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [#2019](https://github.com/latticexyz/mud/issues/2019) dynamic-length methods (setItem/slice/splice)                                                                                      | Addressed: shared dynamic field methods (§2); future additions are library PRs, not codegen changes.                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| [#3590](https://github.com/latticexyz/mud/issues/3590) table lib registration helpers                                                                                                     | Addressed: `TableDef` + `at().register()` (§2 registration).                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| [#3590](https://github.com/latticexyz/mud/issues/3590) table lib registration helpers                                                                                                     | Addressed: table handles — `Position().at(tableId).register()` (§2 registration).                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | [#2693](https://github.com/latticexyz/mud/issues/2693) `decodeStatic` stack-too-deep on wide tables                                                                                       | Must design around: the v3 record codec decodes into the struct in place instead of returning N-wide tuples. Acceptance test: a 28-static-field table must compile.                                                                                                                                                                                                                                                                                                                                                    |
 | [#3126](https://github.com/latticexyz/mud/issues/3126) export StoreMock                                                                                                                   | Addressed: `TestStore` + `own(addr)` injectable-store testing (§2 item 10).                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | [#3636](https://github.com/latticexyz/mud/issues/3636) pass data from before to after hooks                                                                                               | Folded into the hook decision (§2 item 6): moot if store hooks are removed; adopted if they stay.                                                                                                                                                                                                                                                                                                                                                                                                                      |
