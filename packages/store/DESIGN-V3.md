@@ -86,7 +86,7 @@ These libs are enumerable from `SchemaType` and can themselves be generated — 
 
 ### Unchanged
 
-`StoreCore`, `StoreSwitch`, `IStore*`, `Schema`, `FieldLayout`, `EncodedLengths`, `Bytes`, `Slice`, `Storage`, `Memory`, tightcoder. Storage layout, events, and registration are untouched.
+Storage layout, events, registration, `StoreCore`'s kernel semantics, `FieldLayout`, `EncodedLengths`, `Storage`, `Memory`. (`StoreSwitch`, `IStore*`, `Schema`, `Bytes`, `Slice`, and tightcoder are unchanged in _behavior_ but are contraction candidates — see the cleanup pass below.)
 
 ### Codegen changes (`packages/store/ts/codegen`)
 
