@@ -334,6 +334,14 @@ library Vec3KeyCodec {
 
 Codegen's involvement is one import and one constructor call per field (`return EntityIdField(Bytes32Field(self.record, _FIELD_LAYOUT, 0));`), plus calling the key codec inside the table entry function. It never sees the codec logic.
 
+How `keySchema` works, end to end:
+
+- **Without it (the default)**, a user type used as a key occupies **one** column typed as its underlying primitive — plain unwrap + pad, same as any primitive key.
+- **With it**, one Solidity value expands into **N declared columns**. A table keyed on `Vec3` registers a key schema of `[int32, int32, int32]` with names `x, y, z` — so indexers get three queryable columns (`WHERE x = .. AND y = ..`, per-axis ranges) instead of one opaque packed `uint96`. That offchain queryability is the entire reason expansion exists, and is why DUST hand-rolled exactly this tuple shape.
+- **The entry function** sizes the keyTuple from the summed column counts (compile-time constants from config) and calls each key field's codec at its offset; composite keys concatenate. `decodeKey` serves the reverse direction — code handed a raw keyTuple (hooks, generic tooling) recovering the typed value.
+- **Onchain, expansion is invisible**: the kernel hashes and emits `bytes32[]` regardless; record identity is tuple equality. The choice is purely offchain data modeling — scalar (smaller tuple, opaque to queries) vs expanded (per-component columns, slightly larger tuple/event).
+- **Key-only**: the same type used as a _value_ field ignores `keySchema` and stores as its primitive through the field codec.
+
 ### Enums, end to end
 
 Enums declared in config get the same treatment: codegen emits the enum and its (mechanical) field handle once per enum, and domain logic lands as a user method library — no codegen involvement past the handle.
