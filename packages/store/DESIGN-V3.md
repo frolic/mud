@@ -21,7 +21,7 @@ The core move of v3: **keep the generic-over-bytes Store core unchanged, move th
 - Per-table generated code is a thin manifest; behavioral logic exists once.
 - One uniform accessor API — no `_` variants, no suffixed/suffixless duplication, no `IStore`-param variants.
 - Tables, records, and fields are values: generic Solidity can be written against them.
-- Users extend field/record behavior (and bring their own types, including key encodings) with plain Solidity — no codegen involvement.
+- Users extend field/record behavior (and bring their own types) with plain Solidity — no codegen involvement.
 - The intuitive default spelling is correct in every execution context; the gas-optimal spelling is one explicit token.
 
 ### Non-goals
@@ -97,7 +97,7 @@ Storage layout, events, registration, `StoreCore`'s kernel semantics, `FieldLayo
 
 - `field.ts` accessor-body rendering (cast tables, encode selection, store-variant and suffix multiplication) is deleted; replaced by emitting thin handle constructors.
 - `renderTable.ts` emits the manifest described in §3.
-- Config (`ts/config/v2`): `userTypes` entries gain optional `field` (handle type name, default `${name}Field`) and `keySchema` (see §6). Existing configs remain valid.
+- Config (`ts/config/v2`): `userTypes` entries gain optional `field` (handle type name, default `${name}Field`) — see §6. Existing configs remain valid.
 - Unused-in-practice public surface (`encodeStatic`/`encode`/`encodeKeyTuple`/schema getters as generated externs) moves out of the default per-table output (kept available via shared libs / an opt-in codegen flag).
 
 ### World layer
@@ -290,20 +290,16 @@ Design notes:
 
 - The table entry function is the **single** place a table's key schema is encoded (v2 rebuilds `_keyTuple` inside every accessor). Composite keys are additional parameters: `ResourcePosition(objectType, index)`.
 - Keys remain `bytes32[]` — one statically-typed `bytes32` per column. This is load-bearing (storage hashing, event format, indexers) and does not change.
-- User types can define **key codecs** mapping one Solidity value ↔ N typed columns (§6). The motivating case is DUST's `Vec3` (one `uint96` ↔ three `int32` columns, kept separate for per-axis offchain queryability).
+- User types used as keys encode as **one column** via their underlying primitive (plain unwrap + pad). Richer key encodings — one Solidity value expanding into N queryable columns, the DUST `Vec3` case (`uint96` ↔ three `int32` columns for per-axis offchain queries) — are **deferred from this draft**: the drafted per-user-type `keySchema` mixed concerns (a type's value representation vs a table's key/offchain modeling), and the API will be designed separately. See Open questions.
 
-## 6. User types: bring-your-own field and key codecs
+## 6. User types: bring-your-own field codecs
 
 Inversion of responsibility: today codegen _understands_ user types (renders `wrap`/`unwrap` inline); in v3 a user type **ships its own handle**, and codegen only constructs it. The contract between codegen and the type is structural: the handle struct wraps the primitive field handle for its declared storage type.
 
 ```ts
 userTypes: {
   EntityId: { type: "bytes32", filePath: "./src/types/EntityId.sol" },          // scalar: nothing else needed
-  Vec3: {
-    type: "uint96",
-    filePath: "./src/types/Vec3.sol",
-    keySchema: { x: "int32", y: "int32", z: "int32" },                           // key codec shape (optional)
-  },
+  Vec3: { type: "uint96", filePath: "./src/types/Vec3.sol" },                    // packed codec type (see below)
 }
 ```
 
@@ -324,23 +320,11 @@ library EntityIdFieldMethods {
     self.inner.save(EntityId.unwrap(value));
   }
 }
-
-// Key codec convention (only needed when keySchema is declared):
-library Vec3KeyCodec {
-  function encodeKey(Vec3 v, bytes32[] memory keyTuple, uint256 offset) internal pure;
-  function decodeKey(bytes32[] memory keyTuple, uint256 offset) internal pure returns (Vec3);
-}
 ```
 
-Codegen's involvement is one import and one constructor call per field (`return EntityIdField(Bytes32Field(self.record, _FIELD_LAYOUT, 0));`), plus calling the key codec inside the table entry function. It never sees the codec logic.
+Codegen's involvement is one import and one constructor call per field (`return EntityIdField(Bytes32Field(self.record, _FIELD_LAYOUT, 0));`). It never sees the codec logic.
 
-How `keySchema` works, end to end:
-
-- **Without it (the default)**, a user type used as a key occupies **one** column typed as its underlying primitive — plain unwrap + pad, same as any primitive key.
-- **With it**, one Solidity value expands into **N declared columns**. A table keyed on `Vec3` registers a key schema of `[int32, int32, int32]` with names `x, y, z` — so indexers get three queryable columns (`WHERE x = .. AND y = ..`, per-axis ranges) instead of one opaque packed `uint96`. That offchain queryability is the entire reason expansion exists, and is why DUST hand-rolled exactly this tuple shape.
-- **The entry function** sizes the keyTuple from the summed column counts (compile-time constants from config) and calls each key field's codec at its offset; composite keys concatenate. `decodeKey` serves the reverse direction — code handed a raw keyTuple (hooks, generic tooling) recovering the typed value.
-- **Onchain, expansion is invisible**: the kernel hashes and emits `bytes32[]` regardless; record identity is tuple equality. The choice is purely offchain data modeling — scalar (smaller tuple, opaque to queries) vs expanded (per-component columns, slightly larger tuple/event).
-- **Key-only**: the same type used as a _value_ field ignores `keySchema` and stores as its primitive through the field codec.
+User types as keys work today via the default scalar path: one column, plain unwrap + pad of the underlying primitive. Multi-column key expansion is deferred (see §5 and Open questions).
 
 ### Enums, end to end
 
@@ -402,8 +386,7 @@ This removes the current limitations wholesale, because the codec is open code i
 - **Enums become real types** — a `StatusField` lib can expose `transition(from, to)`, not just a bare `uint8` wrap (full example above).
 - **Custom packings** — `type PackedVec2 is uint64` with `getX()/getY()/set(x, y)` over one storage primitive.
 - **Nesting** — `type ChunkId is EntityId`-style layering is ordinary struct composition; config only needs the ultimate primitive.
-- **Lossy key codecs** are a legitimate explicit choice (e.g. a `bytes32`-keyed name table using `keccak(name)`), documented as indexer-lossy.
-- **It's a package ecosystem**: a type + its field methods + key codec + extensions ship as one Solidity file; installing is an import plus a config entry. `Vec3Storage.sol` stops needing to exist.
+- **It's a package ecosystem**: a type + its field methods + extensions ship as one Solidity file; installing is an import plus a config entry. Most of `Vec3Storage.sol` stops needing to exist (its Vec3-keyed multi-column tables await the deferred key-encoding design).
 
 The struct-field seam: in `PositionData`, a user-typed field is the bare UDVT; the generated record codec uses the UDVT's free `wrap`/`unwrap`. Rich codecs apply at _field-handle_ level; record-level decode hands you the UDVT to use its own accessors.
 
@@ -471,8 +454,9 @@ Honest accounting (estimates to be confirmed by the benchmark plan below):
 3. Arrays of user types: element-wise wrap loop vs the assembly pointer-cast trick, owned by the framework-provided array-wrapper template.
 4. Record-handle packing: `keyTuple` as `bytes32[]` is flexible but allocation-heavy; is a fixed-size/inline encoding worth it for 1-key tables (the overwhelmingly common case)?
 5. Naming (resolved). Record deletion: `remove()` — `delete` is a Solidity keyword and thus impossible, `del` is an abbreviation, `remove` is ecosystem-idiomatic; `clear()` noted as the semantically precise alternative since deletion zeroes rather than removes existence. Superseded in review: record verbs are `load`/`save`/`destroy` — `load`/`save` name the storage I/O and signal that the struct is a memory snapshot (not a live reference), `destroy` completes that vocabulary; the verbs apply uniformly to field handles too (field access is storage I/O, per review), including the indexed overloads `load(i)`/`save(i, v)` — `get`/`set` disappear from the API entirely, freeing both as field names. Table-id override: `at(tableId)` — `in` is a reserved keyword; `at` is unambiguous since keys bind at the entry function. Store owner: `own()` / `own(addr)` — one declarative concept, two arities; `local`/`core`/`via` superseded. Meta member: `record` — names its own type (`Record record;`, matching the field-handle convention), reads naturally (`.record.keyTuple`), and avoids `base`, a plausible game field name; a field named `record` falls under the standard rename rule. (`exists()` was cut from `RecordMethods` entirely: no existence bit exists onchain, so any storage-based check is a footgun — see §2.) Method-set libraries: `<Type>Methods` suffix (`Int32FieldMethods`, `PositionRecordMethods`) — in a `using`-for world, v2's `Lib` says nothing while `Methods` names exactly what the library is; the `Lib`/`Instance` split is superseded. Handle types keep the `Field` suffix: user-type and enum handles can't share their UDVT/enum's name, dynamics collide with existing names (`Bytes` lib, `string` keyword), and `Int32` vs `int32` would put a case-only distinction on the API's biggest semantic difference (storage reference vs value).
-6. Migration story: codemod for v2 call sites (`Table.getX(k)` → `Table(k).x().load()`, `Table._set(k, v)` → `Table(k).own().set(v)`), and whether a v2-compat shim layer is worth generating during transition.
+6. Migration story: codemod for v2 call sites (`Table.getX(k)` → `Table(k).x().load()`, `Table._set(k, v)` → `Table(k).own().save(v)`), and whether a v2-compat shim layer is worth generating during transition.
 7. Offchain-table ergonomics: setter-only manifest variant?
+8. **Key encoding for user types (deferred by design).** The DUST `Vec3` case is real — one Solidity value expanding into N queryable key columns for per-axis offchain queries — but the drafted per-user-type `keySchema` mixed concerns: a user type's _value_ representation is a property of the type, while key expansion is really a _table/offchain-modeling_ decision (the same `Vec3` might be one packed column in one table and three columns in another). Design separately, considering: per-table key shape declarations rather than per-type; where the encode/decode codec lives and who ships it; and how composite keys, registration schemas, and `decodeKey`-for-hooks fall out. Until then, user types as keys use the default scalar path (one column, unwrap + pad).
 
 ## EIP revision notes
 
