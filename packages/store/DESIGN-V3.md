@@ -474,21 +474,27 @@ Honest accounting (estimates to be confirmed by the benchmark plan below):
 
    User methods on declared types bind via **config wiring** — forced by a stated constraint: codegen output is regenerated every build and never hand-edited, and `using ... global` must live in the defining file, so codegen must emit the directive and config is the only place to declare it. `methods: "./src/types/Vec3Methods.sol"` makes codegen emit `import { Vec3Methods } ...; using Vec3Methods for Vec3 global;`; `operators: { add: "+" }` emits `using { add as + } for Vec3 global` (operator functions are free functions in the same user file). Verified end-to-end: regenerated type file + user methods/operator file importing each other compiles, with `(a + b).double().x()` ambient everywhere. The import cycle is compile-legal and an implementation detail; the **ownership** graph is acyclic — config wires, codegen emits the type, the user implements behavior in normal source (which imports codegen output exactly like table consumers do). Codegen validates the `methods` path exists with a precise error; per-file `using` remains the zero-config fallback. Types wanting sub-byte packing, nonstandard encodings, or coming from packages are hand-written and **imported** (`{ type, filePath }`) — the deliberate home for fully-custom types, with `schema` types as the home for data-shaped ones. Edges: components static- and primitive-only in v1, count toward the 28-field cap, no nesting.
 
-## Non-breaking adoption path
+## Adoption path: world-external vs regenerated-source
 
-Much of this design is additive and can ship as v2.x minors before any breaking v3 release. Verified facts that make this work: generated table accessors are `internal` (so delegating their bodies to shared libs is bytecode-identical via inlining — confirm with a bytecode diff), userType validation gates on `isSchemaAbiType(userType.type)` (so a new `{ schema }` shape is a clean additive branch, existing `{ type }` configs untouched), and `StoreMock` already exists in `test/`.
+The compatibility line that matters is **the world-external surface** — what an already-deployed or independently-built contract, an indexer, or an offchain client observes — _not_ whether generated code changes. Table libraries are regenerated every build and consumed only by the project's own recompiled systems, so reshaping them (even drastically) is invisible to the deployed world. Verified enablers: generated accessors are `internal`; `IStoreWrite` already exposes the four kernel primitives externally (`setRecord`, `spliceStaticData`, `spliceDynamicData`, `deleteRecord`); `IStore` is the interface the World implements; userType validation gates on `isSchemaAbiType(userType.type)`; `StoreMock` already exists in `test/`.
 
-**Lands now (additive / bytecode-identical):**
+**Regenerate + migrate your own source (no world-external impact — shippable without a protocol major):**
 
-- **Shared field-codec libraries** — the keystone. Rewrite generated accessor _bodies_ to delegate to new per-ABI-type libs; public table API unchanged, output gas-neutral. Shrinks generated source and creates the shared libs everything else needs. The moment shared field _types_ exist, users get `using`-based extensibility — the biggest win, non-breaking.
-- **#2019 dynamic methods** — additive; once on shared libs, future additions are lib PRs not codegen changes.
-- **Field handle types + handle API** generated _alongside_ `getX`/`setX` — additive opt-in surface.
-- **Composite user types** (`{ schema }`, struct/packed) as **value fields** — additive config branch. (Keys need multi-column schema expansion — defer or flag.)
-- **Config-wired `methods`/`operators`**, **publish `StoreMock`** (#3126), **NatSpec on generated libs** (#2690).
+- The **entire handle redesign** — `Position(player).x().load()`, `load`/`save`/`destroy`, `.own()`/`.at()` modifiers — because it compiles down to the four `IStore` primitives that already exist. The world's ABI, events, and storage are byte-identical.
+- **Removing** the old `getX`/`setX` surface, the `_`-variant split, and the 3 store-variant multiplication — these live only in regenerated libs.
+- **Shared field libraries** (bytecode-identical via `internal` inlining), **#2019** methods, **composite/struct user types** (additive config branch), **config-wired `methods`/`operators`**, **publish `StoreMock`** (#3126), **NatSpec** (#2690).
 
-**v3-only (breaking):** renaming/removing the canonical surface (`getX` → `x().load()`, `get`/`set` → `load`/`save`, dropping `_`-variants), kernel reduction (shrink `IStoreWrite`, collapse `Schema`, fold `tightcoder`/`Bytes`/`Slice`), hook removal/opt-in.
+The redundant five `IStoreWrite` methods (`setField`/`setStaticField`/`setDynamicField`/`push`/`pop`) simply stop being _called_ by generated code — they remain as unused external surface until a major removes them.
 
-**Strategy:** ship the additive surface in v2.x so it's battle-tested and migrated-to before v3; v3 then becomes mostly a _deletion_ + kernel-reduction release against a proven new surface, not a big-bang rewrite. Caveat: generating both APIs during transition grows codegen output until the old surface is deleted (source shrinks immediately from shared libs).
+**Genuine world-external breaks (a real major):**
+
+- _Removing_ the now-unused `IStore` methods (external callers / modules may invoke them directly).
+- `IStoreHook` removal or hook opt-in (hooks are independently deployed; `registerStoreHook` is external).
+- Any change to registered `Tables` data or event payloads (`Schema` shape, `EncodedLengths`) — not planned regardless.
+
+**Package-semver, not protocol:** folding out exported `Bytes`/`Slice`/`tightcoder` and TS codegen API changes break downstream packages that import them, but no deployed contract.
+
+**Strategy:** the ergonomic + codegen-reduction payload (handles, naming, shared libs, composite types, variant removal) ships as ordinary releases — coordinated regen across MUD's own packages, a source migration for app authors, zero protocol impact. "v3" as a breaking protocol major shrinks to just the `IStore` shrink and the hook decision, done once the new surface is proven.
 
 ## EIP revision notes
 
