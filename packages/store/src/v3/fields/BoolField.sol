@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.24;
+
+import { Record, StoreAccess } from "../Record.sol";
+import { FieldLayout } from "../../FieldLayout.sol";
+import { Bytes } from "../../Bytes.sol";
+
+/// @notice A handle to one `bool` field of a record.
+struct BoolField {
+  Record record;
+  FieldLayout fieldLayout;
+  uint8 index;
+}
+
+using BoolFieldLib for BoolField global;
+
+/// @notice The `bool` field codec — written once, shared by every `bool` field.
+library BoolFieldLib {
+  function load(BoolField memory self) internal view returns (bool) {
+    return uint8(bytes1(StoreAccess.getStaticField(self.record, self.index, self.fieldLayout))) != 0;
+  }
+
+  function save(BoolField memory self, bool value) internal {
+    StoreAccess.setStaticField(self.record, self.index, encode(value), self.fieldLayout);
+  }
+
+  function encode(bool value) internal pure returns (bytes memory) {
+    return abi.encodePacked(value);
+  }
+
+  function decode(bytes memory staticData, uint256 offset) internal pure returns (bool) {
+    return uint8(Bytes.getBytes1(staticData, offset)) != 0;
+  }
+}

@@ -35,9 +35,9 @@ using PositionRecordMethods for PositionRecord global;
 library PositionRecordMethods {
   ResourceId constant _tableId = ResourceId.wrap(0x74620000000000000000000000000000506f736974696f6e0000000000000000);
   FieldLayout constant _fieldLayout =
-    FieldLayout.wrap(0x0008020004040000000000000000000000000000000000000000000000000000);
+    FieldLayout.wrap(0x0008020204040000000000000000000000000000000000000000000000000000);
   Schema constant _keySchema = Schema.wrap(0x0014010061000000000000000000000000000000000000000000000000000000);
-  Schema constant _valueSchema = Schema.wrap(0x00080202232fc5c500000000000000000000000000000000000000000000000000);
+  Schema constant _valueSchema = Schema.wrap(0x000802022323c565000000000000000000000000000000000000000000000000);
 
   /// @notice Operate on a non-canonical table id (e.g. a module's namespaced instance).
   function at(PositionRecord memory self, ResourceId tableId) internal pure returns (PositionRecord memory) {
@@ -60,8 +60,7 @@ library PositionRecordMethods {
   /// @notice Read the whole record and decode it into a memory struct.
   function load(PositionRecord memory self) internal view returns (PositionData memory) {
     (bytes memory staticData, EncodedLengths encodedLengths, bytes memory dynamicData) = RecordMethods.load(
-      self.record,
-      _fieldLayout
+      self.record
     );
     return _decode(staticData, encodedLengths, dynamicData);
   }
@@ -69,12 +68,12 @@ library PositionRecordMethods {
   /// @notice Encode and write the whole record.
   function save(PositionRecord memory self, PositionData memory data) internal {
     (bytes memory staticData, EncodedLengths encodedLengths, bytes memory dynamicData) = _encode(data);
-    RecordMethods.save(self.record, _fieldLayout, staticData, encodedLengths, dynamicData);
+    RecordMethods.save(self.record, staticData, encodedLengths, dynamicData);
   }
 
   /// @notice Delete the whole record.
   function destroy(PositionRecord memory self) internal {
-    RecordMethods.destroy(self.record, _fieldLayout);
+    RecordMethods.destroy(self.record);
   }
 
   /// @notice Handle for the `x` field.

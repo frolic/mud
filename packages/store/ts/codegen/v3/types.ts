@@ -1,5 +1,8 @@
 import { AbiTypeInfo } from "./abiType";
 
+/** A 0x-prefixed hex string. */
+export type Hex = `0x${string}`;
+
 /**
  * The complete, resolved description of one table that the renderer consumes.
  *
@@ -16,10 +19,10 @@ export type TableCodegen = {
   readonly dataStruct: string;
 
   /** Precomputed hex constants (the renderer never computes these). */
-  readonly tableId: `0x${string}`;
-  readonly fieldLayout: `0x${string}`;
-  readonly keySchema: `0x${string}`;
-  readonly valueSchema: `0x${string}`;
+  readonly tableId: Hex;
+  readonly fieldLayout: Hex;
+  readonly keySchema: Hex;
+  readonly valueSchema: Hex;
 
   readonly keyFields: readonly KeyField[];
   readonly fields: readonly Field[];

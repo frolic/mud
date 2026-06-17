@@ -148,20 +148,19 @@ function renderRecordMethods(table: TableCodegen): string {
   return code`
     /// @notice Read the whole record and decode it into a memory struct.
     function load(${Self} memory self) internal view returns (${table.dataStruct} memory) {
-      (bytes memory staticData, EncodedLengths encodedLengths, bytes memory dynamicData) =
-        RecordMethods.load(self.record, _fieldLayout);
+      (bytes memory staticData, EncodedLengths encodedLengths, bytes memory dynamicData) = RecordMethods.load(self.record);
       return _decode(staticData, encodedLengths, dynamicData);
     }
 
     /// @notice Encode and write the whole record.
     function save(${Self} memory self, ${table.dataStruct} memory data) internal {
       (bytes memory staticData, EncodedLengths encodedLengths, bytes memory dynamicData) = _encode(data);
-      RecordMethods.save(self.record, _fieldLayout, staticData, encodedLengths, dynamicData);
+      RecordMethods.save(self.record, staticData, encodedLengths, dynamicData);
     }
 
     /// @notice Delete the whole record.
     function destroy(${Self} memory self) internal {
-      RecordMethods.destroy(self.record, _fieldLayout);
+      RecordMethods.destroy(self.record);
     }
   `;
 }

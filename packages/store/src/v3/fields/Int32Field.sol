@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.24;
+
+import { Record, StoreAccess } from "../Record.sol";
+import { FieldLayout } from "../../FieldLayout.sol";
+import { Bytes } from "../../Bytes.sol";
+
+/// @notice A handle to one `int32` field of a record.
+struct Int32Field {
+  Record record;
+  FieldLayout fieldLayout;
+  uint8 index;
+}
+
+using Int32FieldLib for Int32Field global;
+
+/**
+ * @notice The `int32` field codec — written once, shared by every `int32` field
+ *         of every table. `load`/`save` operate on the store; the pure
+ *         `encode`/`decode` are used by generated record codecs.
+ */
+library Int32FieldLib {
+  function load(Int32Field memory self) internal view returns (int32) {
+    return int32(uint32(bytes4(StoreAccess.getStaticField(self.record, self.index, self.fieldLayout))));
+  }
+
+  function save(Int32Field memory self, int32 value) internal {
+    StoreAccess.setStaticField(self.record, self.index, encode(value), self.fieldLayout);
+  }
+
+  function encode(int32 value) internal pure returns (bytes memory) {
+    return abi.encodePacked(value);
+  }
+
+  function decode(bytes memory staticData, uint256 offset) internal pure returns (int32) {
+    return int32(uint32(Bytes.getBytes4(staticData, offset)));
+  }
+}

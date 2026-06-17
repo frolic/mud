@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.24;
+
+import { Record, StoreAccess } from "../Record.sol";
+import { EncodedLengths } from "../../EncodedLengths.sol";
+import { SliceLib } from "../../Slice.sol";
+import { DynamicRange } from "./_dynamic.sol";
+
+/// @notice A handle to one `string` field of a record.
+struct StringField {
+  Record record;
+  uint8 dynamicIndex;
+}
+
+using StringFieldLib for StringField global;
+
+/// @notice The `string` field codec — written once, shared by every `string` field.
+library StringFieldLib {
+  function load(StringField memory self) internal view returns (string memory) {
+    return string(StoreAccess.getDynamicField(self.record, self.dynamicIndex));
+  }
+
+  function save(StringField memory self, string memory value) internal {
+    StoreAccess.setDynamicField(self.record, self.dynamicIndex, bytes(value));
+  }
+
+  /// @notice Byte length of the stored string.
+  function length(StringField memory self) internal view returns (uint256) {
+    return StoreAccess.getDynamicFieldLength(self.record, self.dynamicIndex);
+  }
+
+  function encode(string memory value) internal pure returns (bytes memory) {
+    return bytes(value);
+  }
+
+  function byteLength(string memory value) internal pure returns (uint256) {
+    return bytes(value).length;
+  }
+
+  function decode(
+    bytes memory dynamicData,
+    EncodedLengths encodedLengths,
+    uint8 dynamicIndex
+  ) internal pure returns (string memory) {
+    (uint256 start, uint256 end) = DynamicRange.range(encodedLengths, dynamicIndex);
+    return string(SliceLib.getSubslice(dynamicData, start, end).toBytes());
+  }
+}

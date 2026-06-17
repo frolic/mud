@@ -1,58 +1,62 @@
-# Store v3 table codegen (work in progress)
+# Store v3 table codegen + runtime
 
-A rewrite of the Solidity table-library codegen targeting the v3 API
-([DESIGN-V3.md](../../DESIGN-V3.md)). The goal of this rewrite is **TS that reads
-like the Solidity it produces** — no callback cross-products, no per-type casts
-smeared across files.
+A from-scratch rewrite of the Solidity table layer targeting the v3 API
+([DESIGN-V3.md](../../DESIGN-V3.md)). Two goals:
 
-## How it's structured
+1. **TS that reads like the Solidity it produces** — no callback cross-products,
+   no per-type casts smeared across files.
+2. **A thin per-table manifest over shared runtime libraries** — behavior lives
+   once in the runtime, not regenerated per table.
 
-The pipeline is data-in, string-out:
+It compiles and is tested end to end (`test/v3/Mixed.t.sol` round-trips against a
+real store; `codegen.test.ts` covers the resolver and renderer).
+
+## Layout
 
 ```
-config → toTableCodegen → TableCodegen → renderTable → Solidity string → format → file
-                          (types.ts)     (renderTable.ts)               (prettier)
+config → toTableCodegen → TableCodegen → renderTable → Solidity → format → file
+         (resolver)        (types.ts)     (renderer)            (prettier)
 ```
 
-- **`render.ts`** — the one rendering primitive: a `code` tagged template that
-  flattens interpolated arrays (so `fields.map(renderField)` drops in like JSX
-  children) and omits `undefined`/`false`/`""`. It does **not** indent —
-  prettier formats the final output, so templates are written for reading.
-- **`abiType.ts`** — the single source of truth for "what does `uint32` look
-  like": its Solidity type, its shared field-handle type, byte lengths. Adding a
-  type is a one-line edit here.
-- **`types.ts`** — `TableCodegen`, the complete flat description of one table.
-  The renderer does no lookups or config-shape branching; everything is
-  precomputed when this object is built.
-- **`renderTable.ts`** — reads top to bottom in the same order as the generated
-  file (header → imports → struct → entry functions → methods library). Each
-  section is a small pure function. **Start here.**
-- **`demo.ts`** — builds a `TableCodegen` by hand for the spec's `Position`
-  table and prints real output. Run: `pnpm tsx ts/codegen/v3/demo.ts`.
-- **`example/Position.sol`** — the committed output of `demo.ts`, so the
-  generated shape is reviewable without running anything.
+TypeScript (`ts/codegen/v3/`):
 
-## What this PR does and does not include
+- **`render.ts`** — the one primitive: a `code` tagged template that flattens
+  array interpolations (so `fields.map(...)` drops in like JSX children) and
+  omits falsy ones. No indentation logic; prettier owns layout.
+- **`abiType.ts`** — the single "what does `uint32` look like" lookup.
+- **`types.ts`** — `TableCodegen`, the flat fully-precomputed table description.
+- **`toTableCodegen.ts`** — the resolver: computes hex constants, byte offsets,
+  dynamic indices, key encodings. Self-contained (owns its on-chain encodings).
+- **`renderTable.ts`** — reads top-to-bottom in output order. **Start here.**
+- **`generateTestTables.ts`** — writes `test/v3/codegen/*.sol` for the Solidity tests.
+- **`demo.ts`** / **`example/Position.sol`** — the spec's `Position` table, generated.
+- **`codegen.test.ts`** — vitest unit tests (render tag, resolver hex, renderer shape).
 
-**Included:** the renderer and its input model, producing the full v3 table API
-(record handle with `load`/`save`/`destroy`, field handles, `at()`/`own()`
-dispatch modifiers, the entry function, the record codec).
+Solidity runtime (`src/v3/`):
 
-**Not yet included (follow-up workstreams):**
+- **`Record.sol`** — the `Record` handle, `StoreAccess` (the single dispatch point:
+  `store == 0` → `StoreSwitch`, else `IStore(store)`), and table-agnostic
+  `RecordMethods` (`load`/`save`/`destroy`).
+- **`fields/*.sol`** — one shared lib per ABI type (`Int32Field`, `StringField`,
+  `Uint32ArrayField`, …): handle ops (`load`/`save`/element ops) + pure
+  `encode`/`decode`/`byteLength` used by generated record codecs.
 
-1. **The runtime Solidity the output imports** — `v3/Record.sol`
-   (`Record` struct + `RecordMethods`), the shared per-ABI-type field libs
-   (`v3/fields/Int32Field.sol`, `Uint32ArrayField.sol`, …) with their
-   `load`/`save`/`encode`/`decode`/`byteLength`/`decode` surface, and the
-   `StoreAccess` dispatch that reads `record.store`. The example output does not
-   compile until these land.
-2. **`toTableCodegen`** — config-resolution adapter from the resolved
-   `mud.config` table to `TableCodegen` (reusing the existing schema/FieldLayout
-   hex encoders). `demo.ts` stands in for this with a hand-built value and
-   placeholder hex constants.
-3. **Wiring** — replacing the `tablegen()` entry point and regenerating
-   store/world tables.
+## Status
 
-The runtime field libs are the per-ABI-type "written once" libraries described
-in the design; the renderer references them by the naming convention in
-`abiType.ts` (`<Type>Field` / `<Type>FieldLib`).
+**Done and tested:** the renderer, resolver, runtime (`Record` + dispatch +
+field libs for int/uint/address/bool/string/array), and both test suites.
+
+**Remaining (the cut-over):**
+
+1. **Field libs for the full ABI type set** — the six here cover every _shape_;
+   the rest (all uint/int/bytes widths, their arrays, `bytes`) are mechanical and
+   should be generated into `src/v3/fields/` rather than hand-written.
+2. **`StoreCore` fast path** — `StoreAccess` currently routes pinned stores
+   through `IStore` (correct, one extra hop); add the `store == address(this)` →
+   `StoreCore` branch for the gas-optimal `own()` path.
+3. **Config adapter** — map a resolved `mud.config` table (namespaces, user
+   types, codegen options) onto `TableInput`; wire into `tablegen`.
+4. **Delete the old codegen.** Gated on migrating `StoreCore`'s consumption of
+   its own generated core tables (`Tables`, `ResourceIds`, `StoreHooks`) to the
+   v3 API — a separate, safety-critical change. Until then the old codegen stays
+   so the package builds.

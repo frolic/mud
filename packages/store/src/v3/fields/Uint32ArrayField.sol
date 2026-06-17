@@ -1,0 +1,87 @@
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.24;
+
+import { Record, StoreAccess } from "../Record.sol";
+import { EncodedLengths } from "../../EncodedLengths.sol";
+import { SliceLib } from "../../Slice.sol";
+import { EncodeArray } from "../../tightcoder/EncodeArray.sol";
+import { DynamicRange } from "./_dynamic.sol";
+
+/// @notice A handle to one `uint32[]` field of a record.
+struct Uint32ArrayField {
+  Record record;
+  uint8 dynamicIndex;
+}
+
+using Uint32ArrayFieldLib for Uint32ArrayField global;
+
+/**
+ * @notice The `uint32[]` field codec — written once, shared by every `uint32[]` field.
+ * @dev Element-wise ops (`load(index)`, `save(index, value)`, `push`, `pop`) make a
+ *      composite/array field a mini-record: load/save the whole value, or address one
+ *      element. Adding e.g. `slice`/`splice` here lights up on every table, no codegen.
+ */
+library Uint32ArrayFieldLib {
+  uint256 constant _ELEMENT_SIZE = 4;
+
+  function load(Uint32ArrayField memory self) internal view returns (uint32[] memory) {
+    bytes memory blob = StoreAccess.getDynamicField(self.record, self.dynamicIndex);
+    return SliceLib.getSubslice(blob, 0, blob.length).decodeArray_uint32();
+  }
+
+  function save(Uint32ArrayField memory self, uint32[] memory value) internal {
+    StoreAccess.setDynamicField(self.record, self.dynamicIndex, EncodeArray.encode(value));
+  }
+
+  /// @notice Number of elements (not bytes).
+  function length(Uint32ArrayField memory self) internal view returns (uint256) {
+    return StoreAccess.getDynamicFieldLength(self.record, self.dynamicIndex) / _ELEMENT_SIZE;
+  }
+
+  /// @notice Load one element by index.
+  function load(Uint32ArrayField memory self, uint256 index) internal view returns (uint32) {
+    bytes memory blob = StoreAccess.getDynamicFieldSlice(
+      self.record,
+      self.dynamicIndex,
+      index * _ELEMENT_SIZE,
+      (index + 1) * _ELEMENT_SIZE
+    );
+    return uint32(bytes4(blob));
+  }
+
+  /// @notice Overwrite one element by index.
+  function save(Uint32ArrayField memory self, uint256 index, uint32 element) internal {
+    StoreAccess.spliceDynamicData(
+      self.record,
+      self.dynamicIndex,
+      uint40(index * _ELEMENT_SIZE),
+      uint40(_ELEMENT_SIZE),
+      abi.encodePacked(element)
+    );
+  }
+
+  function push(Uint32ArrayField memory self, uint32 element) internal {
+    StoreAccess.pushToDynamicField(self.record, self.dynamicIndex, abi.encodePacked(element));
+  }
+
+  function pop(Uint32ArrayField memory self) internal {
+    StoreAccess.popFromDynamicField(self.record, self.dynamicIndex, _ELEMENT_SIZE);
+  }
+
+  function encode(uint32[] memory value) internal pure returns (bytes memory) {
+    return EncodeArray.encode(value);
+  }
+
+  function byteLength(uint32[] memory value) internal pure returns (uint256) {
+    return value.length * _ELEMENT_SIZE;
+  }
+
+  function decode(
+    bytes memory dynamicData,
+    EncodedLengths encodedLengths,
+    uint8 dynamicIndex
+  ) internal pure returns (uint32[] memory) {
+    (uint256 start, uint256 end) = DynamicRange.range(encodedLengths, dynamicIndex);
+    return SliceLib.getSubslice(dynamicData, start, end).decodeArray_uint32();
+  }
+}
