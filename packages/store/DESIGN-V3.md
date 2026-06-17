@@ -474,6 +474,22 @@ Honest accounting (estimates to be confirmed by the benchmark plan below):
 
    User methods on declared types bind via **config wiring** — forced by a stated constraint: codegen output is regenerated every build and never hand-edited, and `using ... global` must live in the defining file, so codegen must emit the directive and config is the only place to declare it. `methods: "./src/types/Vec3Methods.sol"` makes codegen emit `import { Vec3Methods } ...; using Vec3Methods for Vec3 global;`; `operators: { add: "+" }` emits `using { add as + } for Vec3 global` (operator functions are free functions in the same user file). Verified end-to-end: regenerated type file + user methods/operator file importing each other compiles, with `(a + b).double().x()` ambient everywhere. The import cycle is compile-legal and an implementation detail; the **ownership** graph is acyclic — config wires, codegen emits the type, the user implements behavior in normal source (which imports codegen output exactly like table consumers do). Codegen validates the `methods` path exists with a precise error; per-file `using` remains the zero-config fallback. Types wanting sub-byte packing, nonstandard encodings, or coming from packages are hand-written and **imported** (`{ type, filePath }`) — the deliberate home for fully-custom types, with `schema` types as the home for data-shaped ones. Edges: components static- and primitive-only in v1, count toward the 28-field cap, no nesting.
 
+## Non-breaking adoption path
+
+Much of this design is additive and can ship as v2.x minors before any breaking v3 release. Verified facts that make this work: generated table accessors are `internal` (so delegating their bodies to shared libs is bytecode-identical via inlining — confirm with a bytecode diff), userType validation gates on `isSchemaAbiType(userType.type)` (so a new `{ schema }` shape is a clean additive branch, existing `{ type }` configs untouched), and `StoreMock` already exists in `test/`.
+
+**Lands now (additive / bytecode-identical):**
+
+- **Shared field-codec libraries** — the keystone. Rewrite generated accessor _bodies_ to delegate to new per-ABI-type libs; public table API unchanged, output gas-neutral. Shrinks generated source and creates the shared libs everything else needs. The moment shared field _types_ exist, users get `using`-based extensibility — the biggest win, non-breaking.
+- **#2019 dynamic methods** — additive; once on shared libs, future additions are lib PRs not codegen changes.
+- **Field handle types + handle API** generated _alongside_ `getX`/`setX` — additive opt-in surface.
+- **Composite user types** (`{ schema }`, struct/packed) as **value fields** — additive config branch. (Keys need multi-column schema expansion — defer or flag.)
+- **Config-wired `methods`/`operators`**, **publish `StoreMock`** (#3126), **NatSpec on generated libs** (#2690).
+
+**v3-only (breaking):** renaming/removing the canonical surface (`getX` → `x().load()`, `get`/`set` → `load`/`save`, dropping `_`-variants), kernel reduction (shrink `IStoreWrite`, collapse `Schema`, fold `tightcoder`/`Bytes`/`Slice`), hook removal/opt-in.
+
+**Strategy:** ship the additive surface in v2.x so it's battle-tested and migrated-to before v3; v3 then becomes mostly a _deletion_ + kernel-reduction release against a proven new surface, not a big-bang rewrite. Caveat: generating both APIs during transition grows codegen output until the old surface is deleted (source shrinks immediately from shared libs).
+
 ## EIP revision notes
 
 v3 treats the store event emissions as frozen. But three EIP-impacting items surfaced during this design — recorded here so any future EIP iteration starts from them rather than rediscovering them:
