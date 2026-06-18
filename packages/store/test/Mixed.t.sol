@@ -9,32 +9,32 @@ import { FieldLayout } from "../src/FieldLayout.sol";
 import { Schema, SchemaLib, SchemaType } from "../src/Schema.sol";
 import { EncodedLengths } from "../src/EncodedLengths.sol";
 
-import { Mixed, MixedData } from "./codegen/index.sol";
+import { Mixed, MixedData, MixedRecordMethods } from "./codegen/tables/Mixed.sol";
 
 contract MixedTest is Test, GasReporter, StoreMock {
   MixedData private testMixed;
 
   function setUp() public {
-    Mixed._register();
+    MixedRecordMethods.register();
 
     bytes32 key = keccak256("defaultkey");
     uint32[] memory a32 = new uint32[](2);
     a32[0] = 3;
     a32[1] = 4;
     string memory s = "Lorem ipsum dolor sit amet";
-    Mixed.set({ key: key, u32: 1, u128: 2, a32: a32, s: s });
+    Mixed(key).save(MixedData({ u32: 1, u128: 2, a32: a32, s: s }));
   }
 
   function testRegisterAndGetFieldLayout() public {
-    FieldLayout registeredFieldLayout = StoreCore.getFieldLayout(Mixed._tableId);
-    FieldLayout declaredFieldLayout = Mixed._fieldLayout;
+    FieldLayout registeredFieldLayout = StoreCore.getFieldLayout(MixedRecordMethods._tableId);
+    FieldLayout declaredFieldLayout = MixedRecordMethods._fieldLayout;
 
     assertEq(keccak256(abi.encode(registeredFieldLayout)), keccak256(abi.encode(declaredFieldLayout)));
   }
 
   function testRegisterAndGetSchema() public {
-    Schema registeredSchema = StoreCore.getValueSchema(Mixed._tableId);
-    Schema declaredSchema = Mixed._valueSchema;
+    Schema registeredSchema = StoreCore.getValueSchema(MixedRecordMethods._tableId);
+    Schema declaredSchema = MixedRecordMethods._valueSchema;
 
     assertEq(keccak256(abi.encode(registeredSchema)), keccak256(abi.encode(declaredSchema)));
   }
@@ -48,11 +48,11 @@ contract MixedTest is Test, GasReporter, StoreMock {
     string memory s = "some string";
 
     startGasReport("set record in Mixed (external, cold)");
-    Mixed.set({ key: key, u32: 1, u128: 2, a32: a32, s: s });
+    Mixed(key).save(MixedData({ u32: 1, u128: 2, a32: a32, s: s }));
     endGasReport();
 
     startGasReport("get record from Mixed (external, warm)");
-    MixedData memory mixed = Mixed.get(key);
+    MixedData memory mixed = Mixed(key).load();
     endGasReport();
 
     assertEq(mixed.u32, 1);
@@ -62,7 +62,7 @@ contract MixedTest is Test, GasReporter, StoreMock {
     assertEq(mixed.s, s);
 
     startGasReport("delete record from Mixed (external, warm)");
-    Mixed.deleteRecord(key);
+    Mixed(key).destroy();
     endGasReport();
   }
 
@@ -75,11 +75,11 @@ contract MixedTest is Test, GasReporter, StoreMock {
     string memory s = "some string";
 
     startGasReport("set record in Mixed (internal, cold)");
-    Mixed._set({ key: key, u32: 1, u128: 2, a32: a32, s: s });
+    Mixed(key).own().save(MixedData({ u32: 1, u128: 2, a32: a32, s: s }));
     endGasReport();
 
     startGasReport("get record from Mixed (internal, warm)");
-    MixedData memory mixed = Mixed._get(key);
+    MixedData memory mixed = Mixed(key).own().load();
     endGasReport();
 
     assertEq(mixed.u32, 1);
@@ -89,7 +89,7 @@ contract MixedTest is Test, GasReporter, StoreMock {
     assertEq(mixed.s, s);
 
     startGasReport("delete record from Mixed (internal, warm)");
-    Mixed._deleteRecord(key);
+    Mixed(key).own().destroy();
     endGasReport();
   }
 
@@ -97,7 +97,7 @@ contract MixedTest is Test, GasReporter, StoreMock {
     bytes32 key = keccak256("defaultkey");
 
     startGasReport("delete record from Mixed (external, cold)");
-    Mixed.deleteRecord(key);
+    Mixed(key).destroy();
     endGasReport();
   }
 
@@ -105,7 +105,7 @@ contract MixedTest is Test, GasReporter, StoreMock {
     bytes32 key = keccak256("defaultkey");
 
     startGasReport("delete record from Mixed (internal, cold)");
-    Mixed._deleteRecord(key);
+    Mixed(key).own().destroy();
     endGasReport();
   }
 
@@ -125,7 +125,9 @@ contract MixedTest is Test, GasReporter, StoreMock {
     a32[1] = 4;
     string memory s = "some string";
 
-    (bytes memory staticData, EncodedLengths encodedLengths, bytes memory dynamicData) = Mixed.encode(1, 2, a32, s);
+    (bytes memory staticData, EncodedLengths encodedLengths, bytes memory dynamicData) = MixedRecordMethods._encode(
+      MixedData({ u32: 1, u128: 2, a32: a32, s: s })
+    );
     assertEq(staticData, hex"0000000100000000000000000000000000000002");
     assertEq(encodedLengths.unwrap(), hex"000000000000000000000000000000000000000b000000000800000000000013");
     assertEq(dynamicData, hex"0000000300000004736f6d6520737472696e67");
@@ -135,7 +137,7 @@ contract MixedTest is Test, GasReporter, StoreMock {
     SchemaType[] memory _keySchema = new SchemaType[](1);
     _keySchema[0] = SchemaType.BYTES32;
 
-    assertEq(Schema.unwrap(SchemaLib.encode(_keySchema)), Schema.unwrap(Mixed._keySchema));
+    assertEq(Schema.unwrap(SchemaLib.encode(_keySchema)), Schema.unwrap(MixedRecordMethods._keySchema));
   }
 
   function testValueSchemaEncoding() public {
@@ -145,6 +147,6 @@ contract MixedTest is Test, GasReporter, StoreMock {
     _valueSchema[2] = SchemaType.UINT32_ARRAY;
     _valueSchema[3] = SchemaType.STRING;
 
-    assertEq(Schema.unwrap(SchemaLib.encode(_valueSchema)), Schema.unwrap(Mixed._valueSchema));
+    assertEq(Schema.unwrap(SchemaLib.encode(_valueSchema)), Schema.unwrap(MixedRecordMethods._valueSchema));
   }
 }

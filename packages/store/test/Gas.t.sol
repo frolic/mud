@@ -6,9 +6,13 @@ import { GasReporter } from "@latticexyz/gas-report/src/GasReporter.sol";
 import { Bytes } from "../src/Bytes.sol";
 import { SliceLib } from "../src/Slice.sol";
 import { Storage } from "../src/Storage.sol";
-import { EncodedLengths } from "../src/EncodedLengths.sol";
+import { EncodedLengths, EncodedLengthsLib } from "../src/EncodedLengths.sol";
+import { Uint32FieldLib } from "../src/v3/fields/Uint32Field.sol";
+import { Uint128FieldLib } from "../src/v3/fields/Uint128Field.sol";
+import { Uint32ArrayFieldLib } from "../src/v3/fields/Uint32ArrayField.sol";
+import { StringFieldLib } from "../src/v3/fields/StringField.sol";
 
-import { Mixed, MixedData } from "./codegen/index.sol";
+import { MixedData, MixedRecordMethods } from "./codegen/tables/Mixed.sol";
 
 contract SomeContract {
   function doSomethingWithBytes(bytes memory data) public {}
@@ -40,27 +44,43 @@ contract GasTest is Test, GasReporter {
     endGasReport();
 
     startGasReport("custom encode (static)");
-    bytes memory customEncodedStatic = Mixed.encodeStatic(mixed.u32, mixed.u128);
+    bytes memory customEncodedStatic = abi.encodePacked(
+      Uint32FieldLib.encode(mixed.u32),
+      Uint128FieldLib.encode(mixed.u128)
+    );
     endGasReport();
 
     startGasReport("custom encode (length)");
-    EncodedLengths encodedLengths = Mixed.encodeLengths(mixed.a32, mixed.s);
+    EncodedLengths encodedLengths = EncodedLengthsLib.pack(
+      Uint32ArrayFieldLib.byteLength(mixed.a32),
+      StringFieldLib.byteLength(mixed.s)
+    );
     endGasReport();
     EncodedLengths.unwrap(encodedLengths);
 
     startGasReport("custom encode (dynamic)");
-    bytes memory customEncodedDynamic = Mixed.encodeDynamic(mixed.a32, mixed.s);
+    bytes memory customEncodedDynamic = abi.encodePacked(
+      Uint32ArrayFieldLib.encode(mixed.a32),
+      StringFieldLib.encode(mixed.s)
+    );
     endGasReport();
 
     startGasReport("custom encode");
-    (bytes memory customEncodedStatic2, EncodedLengths customEncodedLengths, bytes memory customEncodedDynamic2) = Mixed
-      .encode(mixed.u32, mixed.u128, mixed.a32, mixed.s);
+    (
+      bytes memory customEncodedStatic2,
+      EncodedLengths customEncodedLengths,
+      bytes memory customEncodedDynamic2
+    ) = MixedRecordMethods._encode(mixed);
     endGasReport();
 
     bytes memory customEncoded = abi.encodePacked(customEncodedStatic2, customEncodedLengths, customEncodedDynamic2);
 
     startGasReport("custom decode");
-    MixedData memory customDecoded = Mixed.decode(customEncodedStatic2, customEncodedLengths, customEncodedDynamic2);
+    MixedData memory customDecoded = MixedRecordMethods._decode(
+      customEncodedStatic2,
+      customEncodedLengths,
+      customEncodedDynamic2
+    );
     endGasReport();
 
     console.log("Length comparison: abi encode %s, custom %s", abiEncoded.length, customEncoded.length);
