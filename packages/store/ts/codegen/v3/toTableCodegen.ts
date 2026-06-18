@@ -59,10 +59,11 @@ export function toTableCodegen(input: TableInput): TableCodegen {
     return { ...base, kind: "static", schemaIndex, byteOffset: offset };
   });
 
-  const keyFields: KeyField[] = input.key.map((key) => ({
+  const keyFields: KeyField[] = input.key.map((key, index) => ({
     name: key.name,
     typeName: key.type,
     toBytes32: keyToBytes32(key.name, key.type, userTypeOf(key.type)),
+    fromKeyTuple: keyFromBytes32(`keyTuple[${index}]`, key.type, userTypeOf(key.type)),
     userType: userTypeOf(key.type),
   }));
 
@@ -164,6 +165,20 @@ function keyToBytes32(name: string, declaredType: string, userType: UserType | u
   if (primitive === "address") return `bytes32(uint256(uint160(${value})))`;
   if (primitive === "bool") return `bytes32(uint256(${value} ? 1 : 0))`;
   throw new Error(`Cannot encode key of type ${declaredType}`);
+}
+
+/** The expression that recovers a typed key from its `bytes32` slot (inverse of {@link keyToBytes32}). */
+function keyFromBytes32(slot: string, declaredType: string, userType: UserType | undefined): string {
+  const primitive = userType?.primitive ?? declaredType;
+  let value: string;
+  if (primitive === "bytes32") value = slot;
+  else if (/^bytes\d{1,2}$/.test(primitive)) value = `${primitive}(${slot})`;
+  else if (/^uint\d{1,3}$/.test(primitive)) value = `${primitive}(uint256(${slot}))`;
+  else if (/^int\d{1,3}$/.test(primitive)) value = `${primitive}(uint${primitive.slice(3)}(uint256(${slot})))`;
+  else if (primitive === "address") value = `address(uint160(uint256(${slot})))`;
+  else if (primitive === "bool") value = `uint256(${slot}) != 0`;
+  else throw new Error(`Cannot decode key of type ${declaredType}`);
+  return userType ? `${userType.name}.wrap(${value})` : value;
 }
 
 const ascii = (text: string, bytes: number): string =>

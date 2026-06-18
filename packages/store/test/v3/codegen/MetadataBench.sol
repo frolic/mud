@@ -113,6 +113,11 @@ library MetadataBenchRecordMethods {
     keyTuple[0] = ResourceId.unwrap(tableId);
   }
 
+  /// @notice Recover the typed key from a raw keyTuple (e.g. inside a store hook).
+  function _decodeKey(bytes32[] memory keyTuple) internal pure returns (ResourceId tableId) {
+    tableId = ResourceId.wrap(keyTuple[0]);
+  }
+
   /// @notice Encode `MetadataBenchData` into the store's (static, lengths, dynamic) triple.
   function _encode(MetadataBenchData memory data) internal pure returns (bytes memory, EncodedLengths, bytes memory) {
     bytes memory staticData = abi.encodePacked(

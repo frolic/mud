@@ -46,6 +46,19 @@ const tables: TableInput[] = [
     userTypes: { MyId: { primitive: "bytes32", filePath: "../MyId.sol" } },
     storeImportPath,
   },
+  // Composite key spanning every static key-type family — exercises _encodeKey/_decodeKey round-trip.
+  {
+    label: "Keyed",
+    key: [
+      { name: "a", type: "uint256" },
+      { name: "b", type: "int32" },
+      { name: "c", type: "address" },
+      { name: "d", type: "bool" },
+      { name: "e", type: "bytes16" },
+    ],
+    fields: [{ name: "value", type: "uint256" }],
+    storeImportPath,
+  },
   // A faithful copy of the store's own `Tables` metadata table — the hot-path benchmark target.
   {
     label: "MetadataBench",

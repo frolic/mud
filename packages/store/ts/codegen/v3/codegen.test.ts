@@ -72,8 +72,14 @@ describe("toTableCodegen", () => {
     expect(mixed.valueSchema).toBe("0x00390402231f6160c56500000000000000000000000000000000000000000000");
   });
 
-  it("encodes each key field to bytes32", () => {
-    expect(mixed.keyFields).toEqual([{ name: "id", typeName: "bytes32", toBytes32: "id" }]);
+  it("encodes and decodes each key field", () => {
+    expect(mixed.keyFields).toHaveLength(1);
+    expect(mixed.keyFields[0]).toMatchObject({
+      name: "id",
+      typeName: "bytes32",
+      toBytes32: "id",
+      fromKeyTuple: "keyTuple[0]",
+    });
   });
 });
 

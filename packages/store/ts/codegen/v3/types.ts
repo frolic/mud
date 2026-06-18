@@ -74,6 +74,8 @@ export type KeyField = {
   readonly typeName: string;
   /** Expression that converts the key field to `bytes32`, given the field name. */
   readonly toBytes32: string;
+  /** Expression that recovers the typed key from its `keyTuple[i]` slot (inverse of `toBytes32`). */
+  readonly fromKeyTuple: string;
   /** Set when the key is a user type (so its UDVT is imported for the param + unwrap). */
   readonly userType?: UserType;
 };

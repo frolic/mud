@@ -89,6 +89,11 @@ library OwnedRecordMethods {
     keyTuple[0] = MyId.unwrap(entity);
   }
 
+  /// @notice Recover the typed key from a raw keyTuple (e.g. inside a store hook).
+  function _decodeKey(bytes32[] memory keyTuple) internal pure returns (MyId entity) {
+    entity = MyId.wrap(keyTuple[0]);
+  }
+
   /// @notice Encode `OwnedData` into the store's (static, lengths, dynamic) triple.
   function _encode(OwnedData memory data) internal pure returns (bytes memory, EncodedLengths, bytes memory) {
     bytes memory staticData = abi.encodePacked(MyIdFieldLib.encode(data.owner), Uint256FieldLib.encode(data.score));

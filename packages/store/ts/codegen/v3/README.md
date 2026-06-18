@@ -137,9 +137,11 @@ int32 num = int32(uint32(bytes4(StoreCore.getStaticField(Mixed._tableId, key, 0,
 
 (`Mixed` here is the methods library.) Verbose by design — it's the rare hot-path
 escape; lift it into your own helper if you repeat it. Verified equivalent to the
-handle API in `test/v3/EscapeHatch.t.sol`. The primitives — `_encodeKey`, `_decode`,
-`_encode`, `_tableId`, `_fieldLayout` — are exactly what the handle methods are built
-on, so the escape hatch costs nothing extra to provide.
+handle API in `test/v3/EscapeHatch.t.sol`. The primitives — `_encodeKey`, `_decodeKey`,
+`_decode`, `_encode`, `_tableId`, `_fieldLayout` — are exactly what the handle methods
+are built on, so the escape hatch costs nothing extra to provide. `_decodeKey` is the
+inverse of `_encodeKey` (raw `keyTuple` → typed key), for store hooks and generic code
+that receive a keyTuple rather than construct one.
 
 ## Revised remaining work
 

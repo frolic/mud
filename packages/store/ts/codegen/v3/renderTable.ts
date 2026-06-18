@@ -225,6 +225,11 @@ function renderKeyEncoder(table: TableCodegen): string {
       keyTuple = new bytes32[](${table.keyFields.length});
       ${table.keyFields.map((key, index) => `keyTuple[${index}] = ${key.toBytes32};`)}
     }
+
+    /// @notice Recover the typed key from a raw keyTuple (e.g. inside a store hook).
+    function _decodeKey(bytes32[] memory keyTuple) internal pure returns (${params}) {
+      ${table.keyFields.map((key) => `${key.name} = ${key.fromKeyTuple};`)}
+    }
   `;
 }
 

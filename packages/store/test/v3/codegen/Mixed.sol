@@ -115,6 +115,11 @@ library MixedRecordMethods {
     keyTuple[0] = id;
   }
 
+  /// @notice Recover the typed key from a raw keyTuple (e.g. inside a store hook).
+  function _decodeKey(bytes32[] memory keyTuple) internal pure returns (bytes32 id) {
+    id = keyTuple[0];
+  }
+
   /// @notice Encode `MixedData` into the store's (static, lengths, dynamic) triple.
   function _encode(MixedData memory data) internal pure returns (bytes memory, EncodedLengths, bytes memory) {
     bytes memory staticData = abi.encodePacked(
