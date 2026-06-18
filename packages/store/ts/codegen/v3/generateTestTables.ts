@@ -46,6 +46,18 @@ const tables: TableInput[] = [
     userTypes: { MyId: { primitive: "bytes32", filePath: "../MyId.sol" } },
     storeImportPath,
   },
+  // Same schema as the v2 `Mixed` test table (test/codegen/tables/Mixed.sol) — for the v2-vs-v3 gas diff.
+  {
+    label: "MixedV2",
+    key: [{ name: "key", type: "bytes32" }],
+    fields: [
+      { name: "u32", type: "uint32" },
+      { name: "u128", type: "uint128" },
+      { name: "a32", type: "uint32[]" },
+      { name: "s", type: "string" },
+    ],
+    storeImportPath,
+  },
   // Composite key spanning every static key-type family — exercises _encodeKey/_decodeKey round-trip.
   {
     label: "Keyed",

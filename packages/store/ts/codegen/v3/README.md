@@ -115,6 +115,26 @@ every op (the un-amortized case), with zero benefit from handle ergonomics. So t
 v3 handle API targets app/developer code; "delete all old codegen" excludes the core
 tables.
 
+## v2 → v3 straight conversion: gas diff
+
+Identical table + operations, v2-generated vs v3-generated (`MixedV2`, same schema),
+StoreSwitch dispatch, `forge test --isolate` (`test/v3/GasV2VsV3.t.sol`):
+
+| op        | v2     | v3     | diff   | %      |
+| --------- | ------ | ------ | ------ | ------ |
+| setRecord | 49,757 | 51,045 | +1,288 | +2.6%  |
+| getRecord | 17,862 | 21,406 | +3,544 | +19.8% |
+| setField  | 37,416 | 38,086 | +670   | +1.8%  |
+| getField  | 5,628  | 6,238  | +610   | +10.8% |
+| push      | 45,002 | 45,527 | +525   | +1.2%  |
+
+**Writes are +1–3%** (storage dominates); **reads are +11–20%** (smaller base, so the
+constant overhead is a bigger fraction). Note `getRecord` is +3,544 — more than one
+handle (~950): the record codec's per-field delegation to the field libs (`_decode`
+calling `Uint32FieldLib.decode` etc.) adds cost on reads that v2 inlines. That's a
+separate, codec-level optimization target (inline the codec), deferred — this is the
+straight, unoptimized conversion.
+
 ## Low-level composition escape hatch
 
 There is **no parallel `getX`/`setX` accessor API**. Instead the table lib exposes its
