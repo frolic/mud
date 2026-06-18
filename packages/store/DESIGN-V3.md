@@ -1,6 +1,7 @@
 # Store v3: table handles + shared field libraries
 
-**Status:** draft design spec
+**Status:** draft design spec + reference implementation (developer-facing layer)
+**Reference implementation:** `packages/store/src/v3` (runtime) and `packages/store/ts/codegen/v3` (codegen), with Solidity + TS tests under `packages/store/test/v3`. Renderer, resolver, 198 field libs, user types, key codec, dispatch, and the composition escape hatch are built and tested; §8 gas numbers are measured against it. The `StoreCore`/world cutover and old-codegen retirement are not done (see §8, adoption path).
 **Scope:** `packages/store` Solidity runtime + table codegen (`packages/store/ts/codegen`). The World layer is unaffected except where noted.
 
 ## Context
@@ -116,7 +117,7 @@ The store event emissions are an EIP and stay frozen — which means the protoco
 6. **Decide store hooks: remove entirely, or keep fully dynamic — no middle.** All four `StoreCore` write paths load `StoreHooks._get(tableId)` before doing anything — a ~100 gas (warm; 2100 cold per table per tx) storage read on **every write** (4 measured call sites). A per-table opt-in flag was considered and rejected: it's a one-way door at registration, wrong for long-lived autonomous worlds where unforeseen future functionality is the point. The real question is whether hooks earn their keep at all. Evidence: the only first-party consumers are `KeysInTable` and `KeysWithValue` — acknowledged-inefficient index modules whose job is done strictly cheaper by **write-through extension methods** (the DUST pattern: `ReverseMovablePosition` maintained alongside `EntityPosition`, standardized as a shipped method lib that writes both tables inline — no hook lookup, no per-write external `CALL` to a hook contract, just the index write). The current ERC20 module uses zero store hooks (it emits its own events); DUST registers zero. What removal genuinely loses: intercepting writes from writers you've granted _direct table access_ but don't control — mitigated by system-mediated access (better practice anyway) plus namespace-owner system upgradability; note that in ossified worlds (ownership renounced) hooks can't be registered either, so hooks add no optionality there. If that loss is acceptable: delete `IStoreHook`, `Hook.sol`, the `StoreHooks` table, and the before/after machinery — ~100 gas off every write in every world, forever, and [#3636](https://github.com/latticexyz/mud/issues/3636) becomes moot. If not: keep hooks exactly as dynamic as today and treat the SLOAD as the price of optionality (adopting #3636's before→after data passing in the redesign).
 7. **Offchain tables: omit read methods.** An offchain table's `set` emits events but writes nothing; reads silently return zeros today. The v3 manifest omits getters (and read-dependent ops) for offchain tables — a compile error instead of silent wrong data. Pairs with a `disabled`/client-only table flag in config ([#3187](https://github.com/latticexyz/mud/issues/3187)).
 8. **Finish the naming sweep.** The `Lib`/`Instance` dual-library pattern across the existing package (`FieldLayoutLib`+`FieldLayoutInstance`, same for `EncodedLengths`, `Slice`, `ResourceId`, `Hook`) collapses to one `<Type>Methods` library plus free-function constructors for the survivors of items 1–5. One convention package-wide. (Adjacent: [#2735](https://github.com/latticexyz/mud/issues/2735) `ResourceId` "name" terminology.)
-9. **Declare the compiler posture.** The design leans on via-IR inlining (handle folding, `own()` branch elision); v3 officially targets via-IR — docs, templates, and gas numbers assume it, legacy pipeline best-effort.
+9. **Compiler posture (measured, not assumed).** Earlier drafts assumed via-IR would fold handle construction away — it does **not** (§8). The handle overhead is ~the same on legacy and via-IR (~950) for plain fields, and via-IR is slightly _worse_ for user-type wrappers. MUD ships the legacy optimizer; v3 targets it, and gas numbers are measured there. via-IR remains available (and is the eventual default + the stack-too-deep fix), but v3's struct-based decode largely sidesteps the stack-too-deep that would force it ([#2693](https://github.com/latticexyz/mud/issues/2693)), so adopting it is not required and does not improve handle gas.
 10. **Ship the injectable-store testing story.** Because the store target is handle state, a lightweight `TestStore` (kernel + registration only) makes tables unit-testable without deploying a World: `Position(player).own(address(testStore)).set(...)`. [#3126](https://github.com/latticexyz/mud/issues/3126) asks for exactly this (`export StoreMock`).
 11. **No `codegen/index.sol`.** The barrel-import pattern makes any codegen change ripple into importing contracts' bytecode, breaking deterministic deploys ([#2838](https://github.com/latticexyz/mud/issues/2838), [#2581](https://github.com/latticexyz/mud/issues/2581)). v3 manifests are imported directly, never re-exported through a barrel. NatSpec on the (now small) generated output is cheap to include ([#2690](https://github.com/latticexyz/mud/issues/2690)).
 
@@ -423,16 +424,63 @@ Position(player).teleport(0, 0);
 
 **Generic tooling.** Functions over `Record` and typed field handles work across tables they've never seen — `bump(Int32Field memory, int32)` works for `Position.x`, `Health.current`, any int32 field anywhere. Schema reflection (`Schema`/`FieldLayout` are onchain) enables fully generic admin/migration code as a later, independent layer.
 
-## 8. Gas & bytecode trade-offs
+## 8. Gas & bytecode trade-offs (MEASURED)
 
-Honest accounting (estimates to be confirmed by the benchmark plan below):
+The estimates in earlier drafts were wrong; these are measured against the reference
+implementation (`src/v3`, `ts/codegen/v3`), via-IR, `forge test --isolate`, whole-call
+gas via `vm.lastCallGas`. Tests: `test/v3/{GasReduction,GasBreakdown,MetadataBench}.t.sol`.
 
-- **Handle construction is memory-struct churn**: `Position(player)` allocates the `Record` + wrapper (~4–5 words) on top of the keyTuple alloc v2 already pays, and each field accessor allocates a ~2–3 word handle — together roughly 30–70 gas per accessor chain, likely less where via-IR elides non-escaping structs. Noise on writes (5k–20k+) and cold reads; a few-percent relative cost on warm reads in tight loops, mitigated by reusing handles (they're values — hoist the record or field handle when touching it repeatedly).
-- **`.own()` vs v2 `_get`**: worst case ~15–20 gas (MLOAD + compares); with via-IR inlining the `EQ(ADDRESS, ADDRESS)` comparison is CSE-foldable to the bare `StoreCore` call. Verifying this fold is an explicit acceptance criterion.
-- **Default path**: unchanged from v2 no-prefix methods (same `StoreSwitch` SLOAD).
-- **Bytecode**: internal functions are included only when referenced and deduplicate per function — multi-table contracts shrink (one `Int32FieldMethods.get` instead of N inlined casts); a single-table/single-field contract grows slightly. Extension-method breadth costs nothing until called. Generated _source_ shrinks dramatically (compile time, artifacts).
-- **Workload-shaped benchmarks** (DUST profile): a move-loop (warm field reads ×N), an inventory scan (`length` + `load(i)` ×N), record load/mutate/save, both compiler pipelines, `forge snapshot` diff against v2 output. Stretch goal: port one real DUST system.
-- **Handle-layout A/B**: the `FieldLayout`-placement decision (§2 — on `Record` vs injected at call sites) was made on design-hygiene grounds with the gas argued to be a wash; benchmark both variants across the workload set (record-op-heavy, single-field-heavy, multi-field-per-record, generic `RecordMethods` ops) to confirm with numbers. Same treatment for `Record` packing generally (open question 4) — the struct's word count multiplies across every access, so small layout choices deserve measured, not argued, answers.
+- **Handle overhead is ~950 gas per handle construction** (fair same-dispatch comparison;
+  a user-type field is ~1,490 due to the extra wrapper layer). The original "~30–70 gas,
+  via-IR elides it" estimate was a methodology error — the abstraction allocates
+  intermediate memory structs that the optimizer does **not** elide.
+- **Holistic: ~2–7% on a realistic record action** (read → change a field → write back),
+  a constant ~1,470 gas (two handle constructions) dwarfed by storage I/O: ~2.4% cold
+  (first touch in a tx), ~7% warm. Whole-record `load`/`save` amortizes the handle across
+  all fields (~4%); the overhead bites only on many separate single-field accesses.
+- **The cost is inseparable from the extensibility.** Fields/records as first-class
+  _values_ (to attach `using` methods, pass to generic code) must exist as runtime
+  objects; ~950/handle is the cost of materializing them. Proven not cheaply reducible:
+  a **lean single-key handle** (no dynamic array, flat struct) was **not cheaper** (~1,020),
+  and **flattening the dispatch/field-lib layers** recovered only **~61 gas** (the
+  optimizer already inlines the hops). It is the struct construction, independent of shape.
+- **via-IR does NOT fold it** — it slightly _worsens_ the user-type case (struct handling)
+  while inlining the call layers. MUD ships the legacy optimizer; numbers are similar
+  (~950) for plain fields on both. Do not adopt via-IR expecting it to help here.
+- **Escape hatch for hot paths**: the low-level composition primitives (§8a) let a caller
+  skip handle construction entirely and hit v2 gas — verified in `EscapeHatch.t.sol`.
+- **`StoreCore` keeps its bare path**: it reads core metadata as single fields on every
+  op (the un-amortized case) with zero benefit from handle ergonomics, so core-table
+  access is not migrated to handles. The v3 handle API targets app/developer code.
+- **Bytecode**: internal functions are included only when referenced and deduplicate per
+  function — multi-table contracts shrink; a single-table/single-field contract grows
+  slightly. Extension-method breadth costs nothing until called. Generated _source_
+  shrinks dramatically.
+
+### 8a. Low-level composition escape hatch
+
+No parallel `getX`/`setX` API. The table lib exposes its raw pieces — `_encodeKey` /
+`_decodeKey` (typed key ↔ `bytes32[]`), `_encode` / `_decode` (record struct ↔ bytes),
+and the `_tableId` / `_fieldLayout` / schema constants — so a hot path composes a direct
+`StoreCore`/`StoreSwitch` call and skips the ~950:
+
+```solidity
+bytes32[] memory key = Mixed._encodeKey(id);
+(bytes memory s, EncodedLengths el, bytes memory d) = StoreCore.getRecord(Mixed._tableId, key);
+MixedData memory data = Mixed._decode(s, el, d);          // ~v2 gas, your composition
+```
+
+These are exactly what the handle methods are built on, so the hatch costs nothing extra
+to provide. `_decodeKey` (raw keyTuple → typed key) serves store hooks, which receive a
+keyTuple. The `_` prefix keeps these from colliding with field accessors on the same lib;
+a separate per-table codec library (`MixedCodec.*`) is the un-prefixed alternative (TBD).
+
+### 8b. Remaining benchmarks
+
+- **Workload-shaped** (DUST profile): move-loop, inventory scan, full system port — confirm
+  the ~2–7% holds at app scale and that the escape hatch hits v2 gas in hot loops.
+- **Handle-layout A/B** (`FieldLayout` on `Record` vs injected) and `Record` packing — the
+  lean-handle result above suggests packing won't help, but confirm on the workload set.
 
 ## 9. Rejected alternatives (and why)
 
@@ -443,16 +491,16 @@ Honest accounting (estimates to be confirmed by the benchmark plan below):
 - **`.x` as struct member, `f(a)(b)` currying, auto-persisting records, partial struct literals**: ruled out by Solidity semantics (member access requires materializing all fields; function types can't close over values; memory writes have no observer; struct literals are total).
 - **Bound "draft"/snapshot records** (`snapshot()` with lazy load, buffered writes, dirty-bit `save()`): implementable (lazy load via memory mutation in `view` is legal; `save()` could coalesce adjacent dirty static fields into one splice), but rejected: a second generated per-table surface, dirty-bitmask branching on every access, and divergence hazards (a snapshot doesn't see external writes; two snapshots of one record don't sync). `load` → mutate → `save` covers the flows.
 - **Free-function method sets** (`using { get, set } for Int32Field global` — no library, no name): verified to work with one handle type per file, and attachments travel with the type. But `using { f }` rejects any overloaded identifier (verified), so the `own()`/`own(addr)` pair cannot attach as free functions — records would need a library anyway, and a mixed free-function/library convention was rejected for consistency. Everything ships as `<Type>Methods` libraries; un-overloading `own` to rescue purity would trade a user-facing API regression for invisible naming cleanliness.
-- **Static-field value sugar** (`x()` returning `int32`, `x(value)` setting, chainable): briefly adopted on a "static op sets are closed" rationale, then reverted. Solidity can't overload on return type, so sugar displaces the handle — and user-typed static fields (enum `transition`, packed-vector codecs, wrapped ids) need the handle as their method attachment point, making static op sets open after all. The sugar saved one ~3-word allocation per access (~25–40 gas, likely optimizer-elided) and one token, at the cost of the §6 extension story and a primitive-vs-custom API split. Uniform handles won.
+- **Static-field value sugar** (`x()` returning `int32`, `x(value)` setting, chainable): briefly adopted on a "static op sets are closed" rationale, then reverted. Solidity can't overload on return type, so sugar displaces the handle — and user-typed static fields (enum `transition`, packed-vector codecs, wrapped ids) need the handle as their method attachment point, making static op sets open after all. The sugar would have skipped the field-handle allocation (part of the measured ~950/handle — _not_ optimizer-elided, as §8 later showed) and one token, at the cost of the §6 extension story and a primitive-vs-custom API split. Uniform handles won; the escape hatch (§8a) recovers the gas where it matters without the split.
 - **Dual path (value sugar + handles for the same field)**: rejected — two spellings for one operation means users must always ask which to use.
 - **Nesting field accessors behind a member** (`.data.x()` / record ops behind `.meta`): taxes one of the two hot paths (fields 30% / record ops 56–65% of usage) for a namespace purity the rename rule already provides.
 
 ## 10. Open questions
 
-1. Does via-IR reliably fold the dispatch branch, the record wrapper, and the field handle constructors? (Benchmark gate; determines whether typed-core handles ever need to exist.)
-2. Recommended compiler posture for downstream projects (via-IR strongly encouraged?) and numbers on the legacy pipeline.
+1. ~~Does via-IR fold the dispatch branch / record wrapper / field handle constructors?~~ **Answered (§8): no.** It does not elide the struct construction; handle overhead is ~950 regardless of pipeline (slightly worse via-IR for user-type wrappers). Typed-core handles are not pursued; the escape hatch (§8a) covers the gas-critical path instead.
+2. ~~Compiler posture / legacy numbers?~~ **Answered (§8/§9):** target the legacy optimizer (what MUD ships); ~950 on both pipelines for plain fields; via-IR not beneficial here.
 3. Arrays of user types: element-wise wrap loop vs the assembly pointer-cast trick, owned by the framework-provided array-wrapper template.
-4. Record-handle packing: `keyTuple` as `bytes32[]` is flexible but allocation-heavy; is a fixed-size/inline encoding worth it for 1-key tables (the overwhelmingly common case)?
+4. ~~Record-handle packing: is a fixed-size/inline encoding worth it for 1-key tables?~~ **Answered (§8): no.** A lean single-key handle (`bytes32 key`, flat struct) measured ~1,020 vs the nested handle's ~950 — _not_ cheaper. The cost is struct construction itself, not the dynamic array or nesting.
 5. Naming (resolved). Record deletion: `remove()` — `delete` is a Solidity keyword and thus impossible, `del` is an abbreviation, `remove` is ecosystem-idiomatic; `clear()` noted as the semantically precise alternative since deletion zeroes rather than removes existence. Superseded in review: record verbs are `load`/`save`/`destroy` — `load`/`save` name the storage I/O and signal that the struct is a memory snapshot (not a live reference), `destroy` completes that vocabulary; the verbs apply uniformly to field handles too (field access is storage I/O, per review), including the indexed overloads `load(i)`/`save(i, v)` — `get`/`set` disappear from the API entirely, freeing both as field names. Table-id override: `at(tableId)` — `in` is a reserved keyword; `at` is unambiguous since keys bind at the entry function. Store owner: `own()` / `own(addr)` — one declarative concept, two arities; `local`/`core`/`via` superseded. Meta member: `record` — names its own type (`Record record;`, matching the field-handle convention), reads naturally (`.record.keyTuple`), and avoids `base`, a plausible game field name; a field named `record` falls under the standard rename rule. (`exists()` was cut from `RecordMethods` entirely: no existence bit exists onchain, so any storage-based check is a footgun — see §2.) Method-set libraries: `<Type>Methods` suffix (`Int32FieldMethods`, `PositionRecordMethods`) — in a `using`-for world, v2's `Lib` says nothing while `Methods` names exactly what the library is; the `Lib`/`Instance` split is superseded. Handle types keep the `Field` suffix: user-type and enum handles can't share their UDVT/enum's name, dynamics collide with existing names (`Bytes` lib, `string` keyword), and `Int32` vs `int32` would put a case-only distinction on the API's biggest semantic difference (storage reference vs value).
 6. Migration story: codemod for v2 call sites (`Table.getX(k)` → `Table(k).x().load()`, `Table._set(k, v)` → `Table(k).own().save(v)`), and whether a v2-compat shim layer is worth generating during transition.
 7. Offchain-table ergonomics: setter-only manifest variant?
