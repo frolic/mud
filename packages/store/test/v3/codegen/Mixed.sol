@@ -26,9 +26,7 @@ struct MixedData {
 
 /// @notice The Mixed record at the given key, bound to the canonical table id.
 function Mixed(bytes32 id) pure returns (MixedRecord memory) {
-  bytes32[] memory keyTuple = new bytes32[](1);
-  keyTuple[0] = id;
-  return MixedRecord(Record(MixedRecordMethods._tableId, keyTuple, address(0)));
+  return MixedRecord(Record(MixedRecordMethods._tableId, MixedRecordMethods._encodeKey(id), address(0)));
 }
 
 struct MixedRecord {
@@ -109,6 +107,12 @@ library MixedRecordMethods {
   /// @notice Handle for the `nums` field.
   function nums(MixedRecord memory self) internal pure returns (Uint32ArrayField memory) {
     return Uint32ArrayField(self.record, 1);
+  }
+
+  /// @notice Encode the key tuple — a primitive for composing direct store calls.
+  function _encodeKey(bytes32 id) internal pure returns (bytes32[] memory keyTuple) {
+    keyTuple = new bytes32[](1);
+    keyTuple[0] = id;
   }
 
   /// @notice Encode `MixedData` into the store's (static, lengths, dynamic) triple.

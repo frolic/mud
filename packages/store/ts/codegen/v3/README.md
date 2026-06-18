@@ -71,8 +71,8 @@ extensibility: fields/records as first-class _values_ (to attach `using` methods
 pass to generic code) must exist as runtime objects, and ~950/handle is the cost of
 materializing them. No redesign removes it without removing the feature (leaner
 handle, flatter layers, and via-IR were all measured to not help). The levers are
-usage shape (whole-record ops, handle reuse) and an optional direct-accessor escape
-hatch for hot single-field loops.
+usage shape (whole-record ops, handle reuse) and a low-level composition escape
+hatch (below) for hot paths.
 
 ## Gas: measured, with optimization attempts (via-IR baseline)
 
@@ -107,13 +107,39 @@ materializing intermediate handle values + call indirection, independent of hand
 shape or pipeline. It is **not** reducible by leaner handles, flatter layers, or
 via-IR. The genuine reductions are (1) amortization — whole-record `load`/`save` and
 handle reuse, which the design supports natively and which makes the common case
-~4%; and (2) an optional v2-style direct-accessor escape hatch for hot single-field
-loops (additive; the only path to ~0 overhead, at the cost of a second spelling).
+~4%; and (2) the low-level composition escape hatch (below) for hot paths — no parallel
+accessor API.
 
 `StoreCore` still keeps its bare path: it reads core metadata as single fields on
 every op (the un-amortized case), with zero benefit from handle ergonomics. So the
 v3 handle API targets app/developer code; "delete all old codegen" excludes the core
 tables.
+
+## Low-level composition escape hatch
+
+There is **no parallel `getX`/`setX` accessor API**. Instead the table lib exposes its
+raw pieces (`_`-prefixed), so a hot path can compose a direct `StoreCore`/`StoreSwitch`
+call and skip handle construction:
+
+```solidity
+// whole record, no handle (~950 cheaper than Table(key).load()):
+bytes32[] memory key = Mixed._encodeKey(id);
+(bytes memory s, EncodedLengths el, bytes memory d) = StoreCore.getRecord(Mixed._tableId, key);
+MixedData memory data = Mixed._decode(s, el, d);
+
+// write:
+(bytes memory s2, EncodedLengths el2, bytes memory d2) = Mixed._encode(data);
+StoreCore.setRecord(Mixed._tableId, key, s2, el2, d2);
+
+// single static field:
+int32 num = int32(uint32(bytes4(StoreCore.getStaticField(Mixed._tableId, key, 0, Mixed._fieldLayout))));
+```
+
+(`Mixed` here is the methods library.) Verbose by design — it's the rare hot-path
+escape; lift it into your own helper if you repeat it. Verified equivalent to the
+handle API in `test/v3/EscapeHatch.t.sol`. The primitives — `_encodeKey`, `_decode`,
+`_encode`, `_tableId`, `_fieldLayout` — are exactly what the handle methods are built
+on, so the escape hatch costs nothing extra to provide.
 
 ## Revised remaining work
 

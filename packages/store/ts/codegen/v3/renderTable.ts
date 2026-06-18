@@ -45,6 +45,8 @@ export function renderTable(table: TableCodegen): string {
 
       ${table.fields.map((field) => renderFieldAccessor(field, table))}
 
+      ${renderKeyEncoder(table)}
+
       ${renderCodec(table, staticFields, dynamicFields)}
     }
   `;
@@ -104,12 +106,11 @@ function renderDataStruct(table: TableCodegen): string {
 function renderEntryFunctions(table: TableCodegen, lib: string): string {
   const params = table.keyFields.map((key) => `${key.typeName} ${key.name}`).join(", ");
 
+  const args = table.keyFields.map((key) => key.name).join(", ");
   return code`
     /// @notice The ${table.label} record at the given key, bound to the canonical table id.
     function ${table.label}(${params}) pure returns (${table.label}Record memory) {
-      bytes32[] memory keyTuple = new bytes32[](${table.keyFields.length});
-      ${table.keyFields.map((key, index) => `keyTuple[${index}] = ${key.toBytes32};`)}
-      return ${table.label}Record(Record(${lib}._tableId, keyTuple, address(0)));
+      return ${table.label}Record(Record(${lib}._tableId, ${lib}._encodeKey(${args}), address(0)));
     }
   `;
 }
@@ -207,8 +208,30 @@ function renderFieldAccessor(field: Field, table: TableCodegen): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// low-level composition primitives (`_`-prefixed): the table's raw pieces, so a
+// caller can hand-roll a direct StoreCore/StoreSwitch call and skip handle
+// construction where gas matters — e.g.
+//   data = T._decode(StoreCore.getRecord(T._tableId, T._encodeKey(key)));
+// These are what the handle methods are built on; exposing them avoids a parallel
+// accessor API while leaving the gas-optimal escape open. (Lift into your own
+// helper if you repeat it.)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function renderKeyEncoder(table: TableCodegen): string {
+  const params = table.keyFields.map((key) => `${key.typeName} ${key.name}`).join(", ");
+  return code`
+    /// @notice Encode the key tuple — a primitive for composing direct store calls.
+    function _encodeKey(${params}) internal pure returns (bytes32[] memory keyTuple) {
+      keyTuple = new bytes32[](${table.keyFields.length});
+      ${table.keyFields.map((key, index) => `keyTuple[${index}] = ${key.toBytes32};`)}
+    }
+  `;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // record codec: the only genuinely shape-specific code. Per-field encode/decode
-// delegates to the shared field libs, so casts live there, not here.
+// delegates to the shared field libs, so casts live there, not here. `_encode`/
+// `_decode` double as the low-level escape-hatch surface (see above).
 // ─────────────────────────────────────────────────────────────────────────────
 
 function renderCodec(

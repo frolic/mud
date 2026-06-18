@@ -20,9 +20,7 @@ struct OwnedData {
 
 /// @notice The Owned record at the given key, bound to the canonical table id.
 function Owned(MyId entity) pure returns (OwnedRecord memory) {
-  bytes32[] memory keyTuple = new bytes32[](1);
-  keyTuple[0] = MyId.unwrap(entity);
-  return OwnedRecord(Record(OwnedRecordMethods._tableId, keyTuple, address(0)));
+  return OwnedRecord(Record(OwnedRecordMethods._tableId, OwnedRecordMethods._encodeKey(entity), address(0)));
 }
 
 struct OwnedRecord {
@@ -83,6 +81,12 @@ library OwnedRecordMethods {
   /// @notice Handle for the `score` field.
   function score(OwnedRecord memory self) internal pure returns (Uint256Field memory) {
     return Uint256Field(self.record, _fieldLayout, 1);
+  }
+
+  /// @notice Encode the key tuple — a primitive for composing direct store calls.
+  function _encodeKey(MyId entity) internal pure returns (bytes32[] memory keyTuple) {
+    keyTuple = new bytes32[](1);
+    keyTuple[0] = MyId.unwrap(entity);
   }
 
   /// @notice Encode `OwnedData` into the store's (static, lengths, dynamic) triple.

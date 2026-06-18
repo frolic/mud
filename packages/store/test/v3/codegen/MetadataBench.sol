@@ -26,9 +26,10 @@ struct MetadataBenchData {
 
 /// @notice The MetadataBench record at the given key, bound to the canonical table id.
 function MetadataBench(ResourceId tableId) pure returns (MetadataBenchRecord memory) {
-  bytes32[] memory keyTuple = new bytes32[](1);
-  keyTuple[0] = ResourceId.unwrap(tableId);
-  return MetadataBenchRecord(Record(MetadataBenchRecordMethods._tableId, keyTuple, address(0)));
+  return
+    MetadataBenchRecord(
+      Record(MetadataBenchRecordMethods._tableId, MetadataBenchRecordMethods._encodeKey(tableId), address(0))
+    );
 }
 
 struct MetadataBenchRecord {
@@ -104,6 +105,12 @@ library MetadataBenchRecordMethods {
   /// @notice Handle for the `abiEncodedFieldNames` field.
   function abiEncodedFieldNames(MetadataBenchRecord memory self) internal pure returns (BytesField memory) {
     return BytesField(self.record, 1);
+  }
+
+  /// @notice Encode the key tuple — a primitive for composing direct store calls.
+  function _encodeKey(ResourceId tableId) internal pure returns (bytes32[] memory keyTuple) {
+    keyTuple = new bytes32[](1);
+    keyTuple[0] = ResourceId.unwrap(tableId);
   }
 
   /// @notice Encode `MetadataBenchData` into the store's (static, lengths, dynamic) triple.
