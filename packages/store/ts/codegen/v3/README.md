@@ -54,30 +54,39 @@ and value (`test/v3/Owned.t.sol`).
 
 Plus the **`StoreCore` fast path** (`own()` → internal `StoreCore`) is in place.
 
-## Hot-path gas finding (measured, decisive)
+## Hot-path gas finding (measured)
 
-`test/v3/MetadataBench.t.sol` benchmarks a v3 handle field read against the bare
-`StoreCore` path on a faithful copy of the store's own `Tables` metadata table:
+A v3 handle field read (`Table(id).own().fieldLayout().load()`) vs the bare
+`StoreCore` path (what v2's `_getFieldLayout` compiles to), measured **fairly** —
+both warm, both allocating a fresh keyTuple, whole-call gas via `vm.lastCallGas`
+(`test/v3/GasBreakdown.t.sol`):
 
-| path                                                     | gas              | notes                            |
-| -------------------------------------------------------- | ---------------- | -------------------------------- |
-| bare `StoreCore.getStaticField` (≈ v2 `_getFieldLayout`) | ~500–800         |                                  |
-| `Table(id).own().fieldLayout().load()` (v3 handle)       | ~3,900–4,700     |                                  |
-| **overhead**                                             | **~3,100–4,200** | **via-IR does not fold it away** |
+| path               | legacy optimizer | via-IR     |
+| ------------------ | ---------------- | ---------- |
+| v2-style bare read | ~1,250           | ~1,300     |
+| v3 handle chain    | ~2,190           | ~2,790     |
+| **overhead**       | **~940**         | **~1,490** |
 
-The overhead is handle construction — the `bytes32[] keyTuple` array plus the
-nested `Record`/field structs allocated in memory — and the dispatch indirection.
-It's paid **once per handle construction**, so it amortizes across whole-record
-`load`/`save` (the 56–65% common case) and across reusing one handle for several
-fields; it is **not** amortized when you build a fresh handle per single field.
+> An earlier number in this PR (~3,100) was a measurement error — it compared the
+> v3 path against a baseline that reused a _warm_ keyTuple and slot. The fair,
+> authoritative overhead is **~0.9-1.5k gas** per isolated field-handle read.
 
-**Architectural consequence:** `StoreCore` reads its core metadata tables
-(`getFieldLayout`, hooks) as single fields on _every_ store op. Routing those
-through v3 handles would add ~3k gas to every operation in every world — a
-non-starter. So **`StoreCore` must keep its cheap internal path; the v3 handle API
-is for application/developer code, where the ergonomics are worth ~3k gas relative
-to the work being done.** This reverses the earlier "delete all old codegen" goal
-for the _core_ tables (see PR description for the full trade-off).
+Per the `testBreakdown` attribution that splits roughly into handle/struct
+construction (~500; the keyTuple array v2 also pays is ~220, so the _extra_ struct
+cost is ~280) plus dispatch indirection and field-wrapper layering (partly failed
+inlining). **via-IR does not help and slightly hurts**, so the "via-IR will fold
+it" assumption is wrong; reducing it means flattening the call layers / a leaner
+handle, not the optimizer.
+
+The overhead is paid **once per handle construction**, so it amortizes across
+whole-record `load`/`save` (the 56-65% common case) and across reusing one handle
+for several fields; it bites on hot single-field loops.
+
+**Architectural consequence:** `StoreCore` reads core metadata as single fields on
+_every_ op, so the ~1k recurs per operation with zero benefit to `StoreCore` (it
+gains nothing from handle ergonomics). So **`StoreCore` keeps its bare path and the
+v3 handle API targets application/developer code.** "Delete all old codegen"
+therefore excludes the core tables.
 
 ## Revised remaining work
 
