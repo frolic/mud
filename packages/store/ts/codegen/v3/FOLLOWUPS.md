@@ -44,7 +44,12 @@ Things intentionally parked while focusing on migrating the store package to v3.
 - **World package migration** — tables + the system/interface codegen (~79 call sites).
 - **Kernel reduction** — shrink `IStoreWrite` to the 4 primitives, collapse `Schema` into
   `FieldLayout`, fold `tightcoder`/`Bytes`/`Slice`. See DESIGN-V3 §2 cleanup pass.
-- **Hook decision** — remove store hooks vs keep dynamic. See DESIGN-V3 §2.
+- **Hook removal** — DECIDED (DESIGN-V3 §2 item 6): remove store hooks entirely
+  (`IStoreHook`, `Hook.sol`, the `StoreHooks` table, before/after machinery), replace
+  with owner-woven composable effects (write-side analog of field traits; correctness
+  via single-writer ownership) and an owner-opt-in reactive interface as the escape
+  hatch. Drops the per-write `_loadStoreHooks` read from every write. Implementation is
+  a follow-up; this migration left hooks intact (still byte-identical to v2).
 
 ## Decisions confirmed with data (RESOLVED)
 
