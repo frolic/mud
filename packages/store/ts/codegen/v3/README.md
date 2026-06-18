@@ -54,53 +54,46 @@ and value (`test/v3/Owned.t.sol`).
 
 Plus the **`StoreCore` fast path** (`own()` → internal `StoreCore`) is in place.
 
-## Hot-path gas finding (measured)
+## Gas: measured, with optimization attempts (via-IR baseline)
 
-A v3 handle field read (`Table(id).own().fieldLayout().load()`) vs the bare
-`StoreCore` path (what v2's `_getFieldLayout` compiles to), measured **fairly** —
-both warm, both allocating a fresh keyTuple, whole-call gas via `vm.lastCallGas`
-(`test/v3/GasBreakdown.t.sol`):
+Fair comparison (same StoreSwitch dispatch on both sides so the store-address SLOAD
+cancels), via-IR, `forge test --isolate`, whole-call gas via `vm.lastCallGas`
+(`test/v3/GasReduction.t.sol`, `GasBreakdown.t.sol`):
 
-| path               | legacy optimizer | via-IR     |
-| ------------------ | ---------------- | ---------- |
-| v2-style bare read | ~1,250           | ~1,300     |
-| v3 handle chain    | ~2,190           | ~2,790     |
-| **overhead**       | **~940**         | **~1,490** |
+| case                                        | gas    | overhead vs v2       |
+| ------------------------------------------- | ------ | -------------------- |
+| v2 `getX`                                   | 5,212  | —                    |
+| v3 plain-field handle                       | 6,161  | **~950**             |
+| v3 whole-record load (6 fields, one handle) | 22,723 | ~950 total ≈ **~4%** |
 
-> An earlier number in this PR (~3,100) was a measurement error — it compared the
-> v3 path against a baseline that reused a _warm_ keyTuple and slot. The fair,
-> authoritative overhead is **~0.9-1.5k gas** per isolated field-handle read.
-> Cross-validated with `forge test --isolate` (each call metered as its own tx,
-> realistic cold access): the delta is identical (943 / 1,492), confirming it's
-> pure abstraction cost. Against the isolate cold baseline (~3,250), that's
-> **~+29% (legacy) / ~+45% (via-IR)** of a realistic single field read.
+The abstraction overhead is **~950 gas per handle construction** — about the same on
+legacy and via-IR for a plain field. (The ~1,490 cited earlier in this PR was a
+_user-type_ field, which adds a wrapper layer that via-IR compiles more expensively;
+a plain field is ~950 on both.) It is paid once per handle, so it **amortizes to ~4%
+on a whole-record load** and to near-nothing across reusing one handle for several
+fields. It bites only on many separate single-field reads.
 
-Per the `testBreakdown` attribution that splits roughly into handle/struct
-construction (~500; the keyTuple array v2 also pays is ~220, so the _extra_ struct
-cost is ~280) plus dispatch indirection and field-wrapper layering (partly failed
-inlining). **via-IR does not help and slightly hurts**, so the "via-IR will fold
-it" assumption is wrong; reducing it means flattening the call layers / a leaner
-handle, not the optimizer.
+**Optimization attempts — both negative (the useful kind):**
 
-**Flattening attempt (measured, negative result):** inlining the `StoreAccess`
-dispatch directly into the field lib — removing one call hop — recovered only
-**~61 gas** in the real chain (943 → 882), not the ~393 a proxy suggested (the
-proxy also skipped the field/wrapper struct construction). The legacy optimizer
-already collapses the dispatch hop, so the ~940 is dominated by **memory struct
-construction** (`Record` + dynamic `keyTuple` + nested field/wrapper structs) —
-intrinsic to "handles as values," not the call layering. Reducing it meaningfully
-needs a leaner handle (a redesign), and the `keyTuple` array alloc (~220) is shared
-with v2 regardless. Flattening was reverted: not worth the duplicated dispatch.
+- **Flatten call layers** (inline dispatch, drop the `StoreAccess` hop): recovered
+  **~61 gas** on the real chain. The optimizer already collapses the hop.
+- **Lean single-key handle** (carry `bytes32 key` instead of a dynamic `bytes32[]`,
+  flat struct instead of nested `Record`): **~1,020, not cheaper**. So the cost is
+  _not_ the dynamic array or the struct nesting — you build the keyTuple at the call
+  boundary regardless, and a flat struct costs about the same.
 
-The overhead is paid **once per handle construction**, so it amortizes across
-whole-record `load`/`save` (the 56-65% common case) and across reusing one handle
-for several fields; it bites on hot single-field loops.
+**Conclusion:** ~950/handle is intrinsic to "fields as first-class values" —
+materializing intermediate handle values + call indirection, independent of handle
+shape or pipeline. It is **not** reducible by leaner handles, flatter layers, or
+via-IR. The genuine reductions are (1) amortization — whole-record `load`/`save` and
+handle reuse, which the design supports natively and which makes the common case
+~4%; and (2) an optional v2-style direct-accessor escape hatch for hot single-field
+loops (additive; the only path to ~0 overhead, at the cost of a second spelling).
 
-**Architectural consequence:** `StoreCore` reads core metadata as single fields on
-_every_ op, so the ~1k recurs per operation with zero benefit to `StoreCore` (it
-gains nothing from handle ergonomics). So **`StoreCore` keeps its bare path and the
-v3 handle API targets application/developer code.** "Delete all old codegen"
-therefore excludes the core tables.
+`StoreCore` still keeps its bare path: it reads core metadata as single fields on
+every op (the un-amortized case), with zero benefit from handle ergonomics. So the
+v3 handle API targets app/developer code; "delete all old codegen" excludes the core
+tables.
 
 ## Revised remaining work
 
