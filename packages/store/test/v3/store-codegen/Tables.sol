@@ -17,7 +17,7 @@ import { FieldLayout } from "../../../src/FieldLayout.sol";
 import { Schema } from "../../../src/Schema.sol";
 import { ResourceId } from "../../../src/ResourceId.sol";
 
-struct MetadataBenchData {
+struct TablesData {
   FieldLayout fieldLayout;
   Schema keySchema;
   Schema valueSchema;
@@ -25,47 +25,44 @@ struct MetadataBenchData {
   bytes abiEncodedFieldNames;
 }
 
-/// @notice The MetadataBench record at the given key, bound to the canonical table id.
-function MetadataBench(ResourceId tableId) pure returns (MetadataBenchRecord memory) {
-  return
-    MetadataBenchRecord(
-      Record(MetadataBenchRecordMethods._tableId, MetadataBenchRecordMethods._encodeKey(tableId), address(0))
-    );
+/// @notice The Tables record at the given key, bound to the canonical table id.
+function Tables(ResourceId tableId) pure returns (TablesRecord memory) {
+  return TablesRecord(Record(TablesRecordMethods._tableId, TablesRecordMethods._encodeKey(tableId), address(0)));
 }
 
-struct MetadataBenchRecord {
+struct TablesRecord {
   Record record;
 }
 
-using MetadataBenchRecordMethods for MetadataBenchRecord global;
+using TablesRecordMethods for TablesRecord global;
 
-library MetadataBenchRecordMethods {
-  ResourceId constant _tableId = ResourceId.wrap(0x746200000000000000000000000000004d6574616461746142656e6368000000);
+library TablesRecordMethods {
+  ResourceId constant _tableId = ResourceId.wrap(0x746273746f72650000000000000000005461626c657300000000000000000000);
   FieldLayout constant _fieldLayout =
     FieldLayout.wrap(0x0060030220202000000000000000000000000000000000000000000000000000);
   Schema constant _keySchema = Schema.wrap(0x002001005f000000000000000000000000000000000000000000000000000000);
   Schema constant _valueSchema = Schema.wrap(0x006003025f5f5fc4c40000000000000000000000000000000000000000000000);
 
   /// @notice Operate on a non-canonical table id (e.g. a module's namespaced instance).
-  function at(MetadataBenchRecord memory self, ResourceId tableId) internal pure returns (MetadataBenchRecord memory) {
+  function at(TablesRecord memory self, ResourceId tableId) internal pure returns (TablesRecord memory) {
     self.record.tableId = tableId;
     return self;
   }
 
   /// @notice Declare this contract's own storage as the store (skips StoreSwitch inference).
-  function own(MetadataBenchRecord memory self) internal view returns (MetadataBenchRecord memory) {
+  function own(TablesRecord memory self) internal view returns (TablesRecord memory) {
     self.record.store = address(this);
     return self;
   }
 
   /// @notice Declare an explicit store to read/write.
-  function own(MetadataBenchRecord memory self, address store) internal pure returns (MetadataBenchRecord memory) {
+  function own(TablesRecord memory self, address store) internal pure returns (TablesRecord memory) {
     self.record.store = store;
     return self;
   }
 
   /// @notice Read the whole record and decode it into a memory struct.
-  function load(MetadataBenchRecord memory self) internal view returns (MetadataBenchData memory) {
+  function load(TablesRecord memory self) internal view returns (TablesData memory) {
     (bytes memory staticData, EncodedLengths encodedLengths, bytes memory dynamicData) = RecordMethods.load(
       self.record
     );
@@ -73,38 +70,38 @@ library MetadataBenchRecordMethods {
   }
 
   /// @notice Encode and write the whole record.
-  function save(MetadataBenchRecord memory self, MetadataBenchData memory data) internal {
+  function save(TablesRecord memory self, TablesData memory data) internal {
     (bytes memory staticData, EncodedLengths encodedLengths, bytes memory dynamicData) = _encode(data);
     RecordMethods.save(self.record, staticData, encodedLengths, dynamicData);
   }
 
   /// @notice Delete the whole record.
-  function destroy(MetadataBenchRecord memory self) internal {
+  function destroy(TablesRecord memory self) internal {
     RecordMethods.destroy(self.record);
   }
 
   /// @notice Handle for the `fieldLayout` field.
-  function fieldLayout(MetadataBenchRecord memory self) internal pure returns (FieldLayoutField memory) {
+  function fieldLayout(TablesRecord memory self) internal pure returns (FieldLayoutField memory) {
     return FieldLayoutField(Bytes32Field(self.record, _fieldLayout, 0));
   }
 
   /// @notice Handle for the `keySchema` field.
-  function keySchema(MetadataBenchRecord memory self) internal pure returns (SchemaField memory) {
+  function keySchema(TablesRecord memory self) internal pure returns (SchemaField memory) {
     return SchemaField(Bytes32Field(self.record, _fieldLayout, 1));
   }
 
   /// @notice Handle for the `valueSchema` field.
-  function valueSchema(MetadataBenchRecord memory self) internal pure returns (SchemaField memory) {
+  function valueSchema(TablesRecord memory self) internal pure returns (SchemaField memory) {
     return SchemaField(Bytes32Field(self.record, _fieldLayout, 2));
   }
 
   /// @notice Handle for the `abiEncodedKeyNames` field.
-  function abiEncodedKeyNames(MetadataBenchRecord memory self) internal pure returns (BytesField memory) {
+  function abiEncodedKeyNames(TablesRecord memory self) internal pure returns (BytesField memory) {
     return BytesField(self.record, 0);
   }
 
   /// @notice Handle for the `abiEncodedFieldNames` field.
-  function abiEncodedFieldNames(MetadataBenchRecord memory self) internal pure returns (BytesField memory) {
+  function abiEncodedFieldNames(TablesRecord memory self) internal pure returns (BytesField memory) {
     return BytesField(self.record, 1);
   }
 
@@ -139,8 +136,8 @@ library MetadataBenchRecordMethods {
     StoreSwitch.registerTable(_tableId, _fieldLayout, _keySchema, _valueSchema, getKeyNames(), getFieldNames());
   }
 
-  /// @notice Encode `MetadataBenchData` into the store's (static, lengths, dynamic) triple.
-  function _encode(MetadataBenchData memory data) internal pure returns (bytes memory, EncodedLengths, bytes memory) {
+  /// @notice Encode `TablesData` into the store's (static, lengths, dynamic) triple.
+  function _encode(TablesData memory data) internal pure returns (bytes memory, EncodedLengths, bytes memory) {
     bytes memory staticData = abi.encodePacked(
       FieldLayoutFieldLib.encode(data.fieldLayout),
       SchemaFieldLib.encode(data.keySchema),
@@ -158,12 +155,12 @@ library MetadataBenchRecordMethods {
     return (staticData, encodedLengths, dynamicData);
   }
 
-  /// @notice Decode the store's (static, lengths, dynamic) triple into `MetadataBenchData`.
+  /// @notice Decode the store's (static, lengths, dynamic) triple into `TablesData`.
   function _decode(
     bytes memory staticData,
     EncodedLengths encodedLengths,
     bytes memory dynamicData
-  ) internal pure returns (MetadataBenchData memory data) {
+  ) internal pure returns (TablesData memory data) {
     data.fieldLayout = FieldLayoutFieldLib.decode(staticData, 0);
     data.keySchema = SchemaFieldLib.decode(staticData, 32);
     data.valueSchema = SchemaFieldLib.decode(staticData, 64);

@@ -47,6 +47,8 @@ export function renderTable(table: TableCodegen): string {
 
       ${renderKeyEncoder(table)}
 
+      ${renderRegistration(table)}
+
       ${renderCodec(table, staticFields, dynamicFields)}
     }
   `;
@@ -71,6 +73,7 @@ function renderImports(table: TableCodegen): string {
 
   return code`
     ${runtime("Record, RecordMethods", "v3/Record.sol")}
+    ${runtime("StoreSwitch", "StoreSwitch.sol")}
     ${runtime("ResourceId", "ResourceId.sol")}
     ${runtime("FieldLayout", "FieldLayout.sol")}
     ${runtime("Schema", "Schema.sol")}
@@ -216,6 +219,39 @@ function renderFieldAccessor(field: Field, table: TableCodegen): string {
 // accessor API while leaving the gas-optimal escape open. (Lift into your own
 // helper if you repeat it.)
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// registration: field names + register(). Table-level, kept on the methods lib for
+// now (a table handle from a no-arg entry is a future refinement).
+// ─────────────────────────────────────────────────────────────────────────────
+
+function renderRegistration(table: TableCodegen): string {
+  const names = (fieldNames: readonly string[], fnName: string, varName: string) => code`
+    function ${fnName}() internal pure returns (string[] memory ${varName}) {
+      ${varName} = new string[](${fieldNames.length});
+      ${fieldNames.map((name, index) => `${varName}[${index}] = "${name}";`)}
+    }
+  `;
+  return code`
+    ${names(
+      table.keyFields.map((key) => key.name),
+      "getKeyNames",
+      "keyNames",
+    )}
+
+    ${names(
+      table.fields.map((field) => field.name),
+      "getFieldNames",
+      "fieldNames",
+    )}
+
+    /// @notice Register this table. Use the low-level \`StoreCore.registerTable\` with the
+    ///         \`_*\` constants + name getters to register against a specific store.
+    function register() internal {
+      StoreSwitch.registerTable(_tableId, _fieldLayout, _keySchema, _valueSchema, getKeyNames(), getFieldNames());
+    }
+  `;
+}
 
 function renderKeyEncoder(table: TableCodegen): string {
   const params = table.keyFields.map((key) => `${key.typeName} ${key.name}`).join(", ");
