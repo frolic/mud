@@ -54,6 +54,26 @@ and value (`test/v3/Owned.t.sol`).
 
 Plus the **`StoreCore` fast path** (`own()` → internal `StoreCore`) is in place.
 
+## Gas: the holistic number
+
+For a realistic record action (read a record, change a field, write it back — the
+56-65% common case), measured against the identical work without handles (same
+generated codec, raw `StoreCore`), via-IR:
+
+|                                       | baseline | v3 handles | overhead | %         |
+| ------------------------------------- | -------- | ---------- | -------- | --------- |
+| cold (first touch in tx — typical)    | 60,377   | 61,847     | 1,470    | **~2.4%** |
+| warm (record already touched this tx) | 20,513   | 21,983     | 1,470    | **~7%**   |
+
+**The v3 ergonomics cost ~2-7% on a realistic record action** — a constant ~1,470 gas
+(two handle constructions), dwarfed by storage I/O. The cost is inseparable from the
+extensibility: fields/records as first-class _values_ (to attach `using` methods and
+pass to generic code) must exist as runtime objects, and ~950/handle is the cost of
+materializing them. No redesign removes it without removing the feature (leaner
+handle, flatter layers, and via-IR were all measured to not help). The levers are
+usage shape (whole-record ops, handle reuse) and an optional direct-accessor escape
+hatch for hot single-field loops.
+
 ## Gas: measured, with optimization attempts (via-IR baseline)
 
 Fair comparison (same StoreSwitch dispatch on both sides so the store-address SLOAD

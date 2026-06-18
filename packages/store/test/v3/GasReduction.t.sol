@@ -7,6 +7,7 @@ import { StoreCore } from "../../src/StoreCore.sol";
 import { StoreSwitch } from "../../src/StoreSwitch.sol";
 import { ResourceId } from "../../src/ResourceId.sol";
 import { FieldLayout } from "../../src/FieldLayout.sol";
+import { EncodedLengths } from "../../src/EncodedLengths.sol";
 
 import { Mixed, MixedData, MixedRecordMethods } from "./codegen/Mixed.sol";
 
@@ -74,6 +75,39 @@ contract GasReductionTest is Test, StoreMock {
 
   function readWholeRecordV3() external view returns (MixedData memory) {
     return Mixed(id).load();
+  }
+
+  // --- a realistic record-level action: read, change a field, write back ---
+  function actionV3() external {
+    MixedData memory d = Mixed(id).load();
+    d.big += 1;
+    Mixed(id).save(d);
+  }
+
+  // identical work, no handles: raw StoreCore + the SAME generated codec
+  function actionBaseline() external {
+    bytes32[] memory kt = new bytes32[](1);
+    kt[0] = id;
+    (bytes memory s, EncodedLengths el, bytes memory dyn) = StoreSwitch.getRecord(MixedRecordMethods._tableId, kt);
+    MixedData memory d = MixedRecordMethods._decode(s, el, dyn);
+    d.big += 1;
+    (bytes memory s2, EncodedLengths el2, bytes memory dyn2) = MixedRecordMethods._encode(d);
+    StoreSwitch.setRecord(MixedRecordMethods._tableId, kt, s2, el2, dyn2);
+  }
+
+  function testHolisticAction() public {
+    this.actionV3();
+    this.actionBaseline(); // warm
+
+    this.actionBaseline();
+    uint256 baseline = vm.lastCallGas().gasTotalUsed;
+    this.actionV3();
+    uint256 v3 = vm.lastCallGas().gasTotalUsed;
+
+    emit log_named_uint("record action: baseline (no handles)", baseline);
+    emit log_named_uint("record action: v3 handles", v3);
+    emit log_named_int("overhead", int256(v3) - int256(baseline));
+    emit log_named_uint("overhead pct x100", ((v3 - baseline) * 10000) / baseline);
   }
 
   function testRealisticGas() public {
