@@ -1,5 +1,6 @@
 import { code } from "./render";
-import { TableCodegen, StaticField, DynamicField } from "./types";
+import { abiTypeInfo } from "./abiType";
+import { TableCodegen, StaticField, DynamicField, Field } from "./types";
 
 /**
  * Render a complete v3 table file.
@@ -56,8 +57,15 @@ export function renderTable(table: TableCodegen): string {
 function renderImports(table: TableCodegen): string {
   const runtime = (symbols: string, file: string) => `import { ${symbols} } from "${table.storeImportPath}/${file}";`;
 
-  // One handle type per distinct ABI type used by a field, imported from the runtime.
-  const fieldHandles = [...new Set(table.fields.map((field) => field.type.fieldHandle))];
+  const userFields = table.fields.filter((field) => field.userType);
+  // Built-in field handles import from the runtime; user-type handles from sibling generated files.
+  const builtinHandles = unique(table.fields.filter((field) => !field.userType).map((field) => field.type.fieldHandle));
+  const userHandles = unique(userFields.map((field) => field.type.fieldHandle));
+  // The primitive handle each user-type wrapper is built from (e.g. ResourceId → Bytes32Field).
+  const primitiveHandles = unique(userFields.map((field) => abiTypeInfo(field.userType!.primitive).fieldHandle));
+  // Deduped UDVT imports — from value fields and key fields alike (a key may be key-only).
+  const userTypes = [...userFields, ...table.keyFields].map((field) => field.userType).filter((ut) => ut != null);
+  const udvtImports = unique(userTypes.map((ut) => `import { ${ut!.name} } from "${ut!.filePath}";`));
 
   return code`
     ${runtime("Record, RecordMethods", "v3/Record.sol")}
@@ -65,9 +73,16 @@ function renderImports(table: TableCodegen): string {
     ${runtime("FieldLayout", "FieldLayout.sol")}
     ${runtime("Schema", "Schema.sol")}
     ${runtime("EncodedLengths, EncodedLengthsLib", "EncodedLengths.sol")}
-    ${fieldHandles.map((handle) => runtime(`${handle}, ${handle}Lib`, `v3/fields/${handle}.sol`))}
+    ${builtinHandles.map((handle) => runtime(`${handle}, ${handle}Lib`, `v3/fields/${handle}.sol`))}
+    ${primitiveHandles.map((handle) => runtime(handle, `v3/fields/${handle}.sol`))}
+    ${userHandles.map((handle) => `import { ${handle}, ${handle}Lib } from "./${handle}.sol";`)}
+    ${udvtImports}
     ${table.imports.map(({ symbol, path }) => `import { ${symbol} } from "${path}";`)}
   `;
+}
+
+function unique(items: readonly string[]): string[] {
+  return [...new Set(items)];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -169,15 +184,19 @@ function renderRecordMethods(table: TableCodegen): string {
 // field accessors: one line each, returning a typed field handle
 // ─────────────────────────────────────────────────────────────────────────────
 
-function renderFieldAccessor(field: StaticField | DynamicField, table: TableCodegen): string {
+function renderFieldAccessor(field: Field, table: TableCodegen): string {
   const Self = `${table.label}Record`;
   const handle = field.type.fieldHandle;
 
-  // Static handles carry (record, fieldLayout, schemaIndex); dynamic carry (record, dynamicIndex).
-  const construct =
+  // The underlying handle carries the store coordinates. Static handles carry
+  // (record, fieldLayout, schemaIndex); dynamic carry (record, dynamicIndex). A
+  // user-type field wraps the primitive's handle in its own handle.
+  const innerHandle = field.userType ? abiTypeInfo(field.userType.primitive).fieldHandle : handle;
+  const inner =
     field.kind === "static"
-      ? `${handle}(self.record, _fieldLayout, ${field.schemaIndex})`
-      : `${handle}(self.record, ${field.dynamicIndex})`;
+      ? `${innerHandle}(self.record, _fieldLayout, ${field.schemaIndex})`
+      : `${innerHandle}(self.record, ${field.dynamicIndex})`;
+  const construct = field.userType ? `${handle}(${inner})` : inner;
 
   return code`
     /// @notice Handle for the \`${field.name}\` field.

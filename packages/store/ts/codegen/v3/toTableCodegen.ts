@@ -1,5 +1,5 @@
-import { abiTypeInfo, isDynamic } from "./abiType";
-import { Field, Hex, KeyField, TableCodegen } from "./types";
+import { abiTypeInfo, AbiTypeInfo, isDynamic } from "./abiType";
+import { Field, Hex, KeyField, TableCodegen, UserType } from "./types";
 
 /**
  * The resolver: a plain table description in, a fully-precomputed {@link TableCodegen}
@@ -22,6 +22,8 @@ export type TableInput = {
   readonly key: readonly NamedType[];
   /** Value fields, in any order — sorted static-first here (a Store invariant). */
   readonly fields: readonly NamedType[];
+  /** User types referenced by `key`/`fields`, by name (the "import" case: a UDVT over a primitive). */
+  readonly userTypes?: Readonly<Record<string, { primitive: string; filePath: string }>>;
   /** Import path to the store runtime root, relative to the generated file. */
   readonly storeImportPath: string;
 };
@@ -30,16 +32,25 @@ type NamedType = { readonly name: string; readonly type: string };
 
 export function toTableCodegen(input: TableInput): TableCodegen {
   const namespace = input.namespace ?? "";
+  const userTypes = input.userTypes ?? {};
+
+  // Resolve a declared type to its primitive ABI type (a user type → what it wraps).
+  const primitive = (type: string): string => userTypes[type]?.primitive ?? type;
+  const userTypeOf = (type: string): UserType | undefined =>
+    userTypes[type] && { name: type, primitive: userTypes[type].primitive, filePath: userTypes[type].filePath };
 
   // Store requires static fields before dynamic; this order drives the struct,
   // schema, field layout, and codec alike, so we sort once here.
-  const sorted = [...input.fields].sort(byStaticFirst);
+  const sorted = [...input.fields].sort(
+    (a, b) => Number(isDynamic(abiTypeInfo(primitive(a.type)))) - Number(isDynamic(abiTypeInfo(primitive(b.type)))),
+  );
 
   let byteOffset = 0;
   let dynamicIndex = 0;
   const fields: Field[] = sorted.map((field, schemaIndex): Field => {
-    const type = abiTypeInfo(field.type);
-    const base = { name: field.name, type, typeName: field.type };
+    const userType = userTypeOf(field.type);
+    const type = fieldType(field.type, userType);
+    const base = { name: field.name, type, typeName: field.type, userType };
     if (isDynamic(type)) {
       return { ...base, kind: "dynamic", dynamicIndex: dynamicIndex++ };
     }
@@ -51,16 +62,17 @@ export function toTableCodegen(input: TableInput): TableCodegen {
   const keyFields: KeyField[] = input.key.map((key) => ({
     name: key.name,
     typeName: key.type,
-    toBytes32: keyToBytes32(key.name, key.type),
+    toBytes32: keyToBytes32(key.name, key.type, userTypeOf(key.type)),
+    userType: userTypeOf(key.type),
   }));
 
   return {
     label: input.label,
     dataStruct: `${input.label}Data`,
     tableId: resourceToHex(input.type === "offchainTable" ? "ot" : "tb", namespace, input.label),
-    fieldLayout: encodeFieldLayout(sorted.map((field) => field.type)),
-    keySchema: encodeSchema(input.key.map((key) => key.type)),
-    valueSchema: encodeSchema(sorted.map((field) => field.type)),
+    fieldLayout: encodeFieldLayout(sorted.map((field) => primitive(field.type))),
+    keySchema: encodeSchema(input.key.map((key) => primitive(key.type))),
+    valueSchema: encodeSchema(sorted.map((field) => primitive(field.type))),
     keyFields,
     fields,
     imports: [],
@@ -68,8 +80,11 @@ export function toTableCodegen(input: TableInput): TableCodegen {
   };
 }
 
-function byStaticFirst(a: NamedType, b: NamedType): number {
-  return Number(isDynamic(abiTypeInfo(a.type))) - Number(isDynamic(abiTypeInfo(b.type)));
+/** A user-typed field keeps the primitive's byte length but presents the UDVT's handle/type. */
+function fieldType(declaredType: string, userType: UserType | undefined): AbiTypeInfo {
+  if (!userType) return abiTypeInfo(declaredType);
+  const primitive = abiTypeInfo(userType.primitive);
+  return { ...primitive, solidityType: userType.name, fieldHandle: `${userType.name}Field` };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -138,15 +153,17 @@ function schemaTypeId(abiType: string): number {
   throw new Error(`Unknown schema ABI type: ${abiType}`);
 }
 
-/** The expression that converts a key field of `abiType` to `bytes32`. */
-function keyToBytes32(name: string, abiType: string): string {
-  if (abiType === "bytes32") return name;
-  if (/^bytes\d{1,2}$/.test(abiType)) return `bytes32(${name})`;
-  if (/^uint\d{1,3}$/.test(abiType)) return `bytes32(uint256(${name}))`;
-  if (/^int\d{1,3}$/.test(abiType)) return `bytes32(uint256(int256(${name})))`;
-  if (abiType === "address") return `bytes32(uint256(uint160(${name})))`;
-  if (abiType === "bool") return `bytes32(uint256(${name} ? 1 : 0))`;
-  throw new Error(`Cannot encode key of type ${abiType}`);
+/** The expression that converts a key field to `bytes32` (unwrapping a user type first). */
+function keyToBytes32(name: string, declaredType: string, userType: UserType | undefined): string {
+  const value = userType ? `${userType.name}.unwrap(${name})` : name;
+  const primitive = userType?.primitive ?? declaredType;
+  if (primitive === "bytes32") return value;
+  if (/^bytes\d{1,2}$/.test(primitive)) return `bytes32(${value})`;
+  if (/^uint\d{1,3}$/.test(primitive)) return `bytes32(uint256(${value}))`;
+  if (/^int\d{1,3}$/.test(primitive)) return `bytes32(uint256(int256(${value})))`;
+  if (primitive === "address") return `bytes32(uint256(uint160(${value})))`;
+  if (primitive === "bool") return `bytes32(uint256(${value} ? 1 : 0))`;
+  throw new Error(`Cannot encode key of type ${declaredType}`);
 }
 
 const ascii = (text: string, bytes: number): string =>

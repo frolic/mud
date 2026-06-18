@@ -55,6 +55,18 @@ type FieldBase = {
   readonly type: AbiTypeInfo;
   /** The type as the user named it (a user type like `EntityId`, else same as `type.solidityType`). */
   readonly typeName: string;
+  /** Set when the field is a user type wrapping a primitive (drives wrap/unwrap + imports). */
+  readonly userType?: UserType;
+};
+
+/** A user-defined value type wrapping a single primitive ABI type (the "import" case of DESIGN-V3 §6). */
+export type UserType = {
+  /** The UDVT, e.g. `ResourceId`. */
+  readonly name: string;
+  /** The primitive it wraps, e.g. `bytes32` — drives schema, layout, and the underlying field handle. */
+  readonly primitive: string;
+  /** Import path to the file declaring the UDVT. */
+  readonly filePath: string;
 };
 
 export type KeyField = {
@@ -62,6 +74,8 @@ export type KeyField = {
   readonly typeName: string;
   /** Expression that converts the key field to `bytes32`, given the field name. */
   readonly toBytes32: string;
+  /** Set when the key is a user type (so its UDVT is imported for the param + unwrap). */
+  readonly userType?: UserType;
 };
 
 export type Import = {

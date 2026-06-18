@@ -3,6 +3,7 @@ import { code } from "./render";
 import { abiTypeInfo, isDynamic } from "./abiType";
 import { toTableCodegen } from "./toTableCodegen";
 import { renderTable } from "./renderTable";
+import { renderUserTypeField } from "./renderUserTypeField";
 import { StaticField, DynamicField } from "./types";
 
 describe("code", () => {
@@ -100,5 +101,50 @@ describe("renderTable", () => {
   it("emits one accessor per field, returning its typed handle", () => {
     expect(output).toContain("function num(MixedRecord memory self) internal pure returns (Int32Field memory)");
     expect(output).toContain("function nums(MixedRecord memory self) internal pure returns (Uint32ArrayField memory)");
+  });
+});
+
+describe("user types", () => {
+  const owned = toTableCodegen({
+    label: "Owned",
+    key: [{ name: "entity", type: "MyId" }],
+    fields: [
+      { name: "owner", type: "MyId" },
+      { name: "score", type: "uint256" },
+    ],
+    userTypes: { MyId: { primitive: "bytes32", filePath: "../MyId.sol" } },
+    storeImportPath: "../../../src",
+  });
+
+  it("resolves a user-typed field to its wrapper handle over the primitive", () => {
+    const owner = owned.fields.find((field) => field.name === "owner") as StaticField;
+    expect(owner.typeName).toBe("MyId");
+    expect(owner.type.fieldHandle).toBe("MyIdField");
+    expect(owner.type.staticByteLength).toBe(32); // the primitive's length
+    expect(owner.userType).toEqual({ name: "MyId", primitive: "bytes32", filePath: "../MyId.sol" });
+  });
+
+  it("encodes schema and key from the underlying primitive", () => {
+    expect(owned.keyFields[0].toBytes32).toBe("MyId.unwrap(entity)");
+    expect(owned.keySchema).toBe("0x002001005f000000000000000000000000000000000000000000000000000000");
+    expect(owned.valueSchema).toBe("0x004002005f1f0000000000000000000000000000000000000000000000000000");
+  });
+
+  it("renders the wrapped accessor, entry param, and UDVT import", () => {
+    const output = renderTable(owned);
+    expect(output).toContain('import { MyId } from "../MyId.sol"');
+    expect(output).toContain("function Owned(MyId entity) pure returns (OwnedRecord memory)");
+    expect(output).toContain("function owner(OwnedRecord memory self) internal pure returns (MyIdField memory)");
+    expect(output).toContain("return MyIdField(Bytes32Field(self.record, _fieldLayout, 0));");
+  });
+
+  it("renders the user-type field wrapper that wraps/unwraps the UDVT", () => {
+    const wrapper = renderUserTypeField(
+      { name: "MyId", primitive: "bytes32", filePath: "../MyId.sol" },
+      "../../../src",
+    );
+    expect(wrapper).toContain("struct MyIdField {");
+    expect(wrapper).toContain("return MyId.wrap(self.inner.load());");
+    expect(wrapper).toContain("self.inner.save(MyId.unwrap(value));");
   });
 });
