@@ -70,6 +70,10 @@ both warm, both allocating a fresh keyTuple, whole-call gas via `vm.lastCallGas`
 > An earlier number in this PR (~3,100) was a measurement error — it compared the
 > v3 path against a baseline that reused a _warm_ keyTuple and slot. The fair,
 > authoritative overhead is **~0.9-1.5k gas** per isolated field-handle read.
+> Cross-validated with `forge test --isolate` (each call metered as its own tx,
+> realistic cold access): the delta is identical (943 / 1,492), confirming it's
+> pure abstraction cost. Against the isolate cold baseline (~3,250), that's
+> **~+29% (legacy) / ~+45% (via-IR)** of a realistic single field read.
 
 Per the `testBreakdown` attribution that splits roughly into handle/struct
 construction (~500; the keyTuple array v2 also pays is ~220, so the _extra_ struct
