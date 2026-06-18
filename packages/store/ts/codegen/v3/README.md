@@ -35,8 +35,8 @@ TypeScript (`ts/codegen/v3/`):
 Solidity runtime (`src/v3/`):
 
 - **`Record.sol`** — the `Record` handle, `StoreAccess` (the single dispatch point:
-  `store == 0` → `StoreSwitch`, else `IStore(store)`), and table-agnostic
-  `RecordMethods` (`load`/`save`/`destroy`).
+  `store == 0` → `StoreSwitch`, `store == address(this)` → `StoreCore`, else
+  `IStore(store)`), and table-agnostic `RecordMethods` (`load`/`save`/`destroy`).
 - **`fields/*.sol`** — one shared lib per ABI type (`Int32Field`, `StringField`,
   `Uint32ArrayField`, …): handle ops (`load`/`save`/element ops) + pure
   `encode`/`decode`/`byteLength` used by generated record codecs.
