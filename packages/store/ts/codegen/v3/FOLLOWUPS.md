@@ -48,8 +48,16 @@ Things intentionally parked while focusing on migrating the store package to v3.
 
 ## Decisions to confirm with data (this migration produces it)
 
-- **StoreCore on handles vs low-level primitives.** The gas finding says handles add
-  ~950/op to StoreCore's hot path. The migration uses the **low-level composition
-  primitives** (`_encodeKey`/`_decode`/direct `StoreCore`) for StoreCore's internal
-  metadata access to stay ~v2 gas, reserving handles for app code. Confirm via the store
-  gas-report diff.
+- **StoreCore on handles vs low-level primitives.** MEASURED (clean same-compiler
+  v2-vs-v3 store gas diff, StoreCore-on-v2 @HEAD~1 vs StoreCore-on-v3 @HEAD): the
+  straight handle-API conversion costs **~800 gas per handle touched**, concentrated
+  entirely in metadata access — the data read/write path is unchanged (+3–8 = noise):
+  - every record set/delete: **+~800** (the per-write `StoreHooks` hooks-list read)
+  - warm `getKeySchema`: **+1854** (2 handles), warm `getValueSchema`: **+977** (1)
+  - table registration: **+~6150** (cold; ~6–7 handles)
+  - `registerStoreHook`: **+2222** (2 handles)
+    Resolution: convert StoreCore's **hot** metadata reads (the per-write hooks read ×4,
+    the schema getters) to the low-level composition path (`StoreCore.getDynamicField`/
+    `getStaticField` + `_tableId`/`_fieldLayout`/`_encodeKey` constants) to recover the
+    ~800/write — the highest-frequency hit. Keep **cold** registration on the readable
+    handle API (deploy-time only). The data path needs nothing.
