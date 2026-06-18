@@ -6,14 +6,14 @@ pragma solidity >=0.8.24;
 import { Bytes32Field, Bytes32FieldLib } from "../../v3/fields/Bytes32Field.sol";
 import { FieldLayout } from "../../FieldLayout.sol";
 
-/// @notice A handle to one `FieldLayout` field (a user type wrapping `bytes32`).
+/// @notice A handle to one `FieldLayout` field (a UDVT over `bytes32`).
 struct FieldLayoutField {
   Bytes32Field inner;
 }
 
 using FieldLayoutFieldLib for FieldLayoutField global;
 
-/// @notice The `FieldLayout` field codec: delegates to `Bytes32FieldLib`, wrapping/unwrapping the UDVT.
+/// @notice The `FieldLayout` field codec: delegates to `Bytes32FieldLib`, converting at the boundary.
 library FieldLayoutFieldLib {
   function load(FieldLayoutField memory self) internal view returns (FieldLayout) {
     return FieldLayout.wrap(self.inner.load());
