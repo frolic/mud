@@ -9,6 +9,8 @@ import { ResourceId } from "../../../src/ResourceId.sol";
 import { FieldLayout } from "../../../src/FieldLayout.sol";
 import { Schema } from "../../../src/Schema.sol";
 import { EncodedLengths, EncodedLengthsLib } from "../../../src/EncodedLengths.sol";
+import { Bytes } from "../../../src/Bytes.sol";
+
 import { Uint256Field, Uint256FieldLib } from "../../../src/v3/fields/Uint256Field.sol";
 
 struct KeyedData {
@@ -124,7 +126,7 @@ library KeyedRecordMethods {
 
   /// @notice Encode `KeyedData` into the store's (static, lengths, dynamic) triple.
   function _encode(KeyedData memory data) internal pure returns (bytes memory, EncodedLengths, bytes memory) {
-    bytes memory staticData = abi.encodePacked(Uint256FieldLib.encode(data.value));
+    bytes memory staticData = abi.encodePacked(data.value);
     return (staticData, EncodedLengths.wrap(bytes32(0)), new bytes(0));
   }
 
@@ -134,6 +136,6 @@ library KeyedRecordMethods {
     EncodedLengths encodedLengths,
     bytes memory dynamicData
   ) internal pure returns (KeyedData memory data) {
-    data.value = Uint256FieldLib.decode(staticData, 0);
+    data.value = uint256(Bytes.getBytes32(staticData, 0));
   }
 }

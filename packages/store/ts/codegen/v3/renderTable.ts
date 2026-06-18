@@ -1,5 +1,7 @@
 import { code } from "./render";
 import { abiTypeInfo } from "./abiType";
+import { cast } from "./staticCast";
+import { fromPrimitive, toPrimitive } from "./userTypeConvert";
 import { TableCodegen, StaticField, DynamicField, Field } from "./types";
 
 /**
@@ -61,6 +63,11 @@ export function renderTable(table: TableCodegen): string {
 function renderImports(table: TableCodegen): string {
   const runtime = (symbols: string, file: string) => `import { ${symbols} } from "${table.storeImportPath}/${file}";`;
 
+  // Low-level codec deps the inlined `_encode`/`_decode` reach for directly (see renderCodec).
+  const hasStatic = table.fields.some((field) => field.kind === "static");
+  const dynamicFields = table.fields.filter((field): field is DynamicField => field.kind === "dynamic");
+  const hasArray = dynamicFields.some((field) => field.typeName.endsWith("[]"));
+
   const userFields = table.fields.filter((field) => field.userType);
   // Built-in field handles import from the runtime; user-type handles from sibling generated files.
   const builtinHandles = unique(table.fields.filter((field) => !field.userType).map((field) => field.type.fieldHandle));
@@ -78,6 +85,10 @@ function renderImports(table: TableCodegen): string {
     ${runtime("FieldLayout", "FieldLayout.sol")}
     ${runtime("Schema", "Schema.sol")}
     ${runtime("EncodedLengths, EncodedLengthsLib", "EncodedLengths.sol")}
+    ${hasStatic ? runtime("Bytes", "Bytes.sol") : ""}
+    ${dynamicFields.length ? runtime("SliceLib", "Slice.sol") : ""}
+    ${dynamicFields.length ? runtime("DynamicRange", "v3/fields/_dynamic.sol") : ""}
+    ${hasArray ? runtime("EncodeArray", "tightcoder/EncodeArray.sol") : ""}
     ${builtinHandles.map((handle) => runtime(`${handle}, ${handle}Lib`, `v3/fields/${handle}.sol`))}
     ${primitiveHandles.map((handle) => runtime(handle, `v3/fields/${handle}.sol`))}
     ${userHandles.map((handle) => `import { ${handle}, ${handle}Lib } from "./${handle}.sol";`)}
@@ -270,9 +281,12 @@ function renderKeyEncoder(table: TableCodegen): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// record codec: the only genuinely shape-specific code. Per-field encode/decode
-// delegates to the shared field libs, so casts live there, not here. `_encode`/
-// `_decode` double as the low-level escape-hatch surface (see above).
+// record codec: the only genuinely shape-specific code, and the low-level
+// escape-hatch surface (see above). Encode/decode are INLINED per field rather
+// than delegated to the field libs — `abi.encodePacked` over the raw primitives
+// (one allocation, not one per field) and direct casts on decode. The per-type
+// cast knowledge is the same `cast()` the field libs are generated from, so this
+// inlines exactly what a field lib's `decode` would have done.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function renderCodec(
@@ -288,17 +302,17 @@ function renderCodec(
       returns (bytes memory, EncodedLengths, bytes memory)
     {
       bytes memory staticData = abi.encodePacked(
-        ${staticFields.map((field) => `${field.type.fieldHandle}Lib.encode(data.${field.name})`).join(",\n")}
+        ${staticFields.map(staticEncodeOperand).join(",\n")}
       );
       ${
         dynamicFields.length === 0
           ? code`return (staticData, EncodedLengths.wrap(bytes32(0)), new bytes(0));`
           : code`
             EncodedLengths encodedLengths = EncodedLengthsLib.pack(
-              ${dynamicFields.map((field) => `${field.type.fieldHandle}Lib.byteLength(data.${field.name})`).join(",\n")}
+              ${dynamicFields.map(dynamicByteLength).join(",\n")}
             );
             bytes memory dynamicData = abi.encodePacked(
-              ${dynamicFields.map((field) => `${field.type.fieldHandle}Lib.encode(data.${field.name})`).join(",\n")}
+              ${dynamicFields.map(dynamicEncodeOperand).join(",\n")}
             );
             return (staticData, encodedLengths, dynamicData);
           `
@@ -311,13 +325,54 @@ function renderCodec(
       pure
       returns (${table.dataStruct} memory data)
     {
-      ${staticFields.map(
-        (field) => `data.${field.name} = ${field.type.fieldHandle}Lib.decode(staticData, ${field.byteOffset});`,
-      )}
-      ${dynamicFields.map(
-        (field) =>
-          `data.${field.name} = ${field.type.fieldHandle}Lib.decode(dynamicData, encodedLengths, ${field.dynamicIndex});`,
-      )}
+      ${staticFields.map((field) => `data.${field.name} = ${staticDecode(field)};`)}
+      ${dynamicFields.map(dynamicDecode)}
     }
+  `;
+}
+
+/** The primitive ABI type a field is stored as (a user type → what it presents over). */
+function primitiveOf(field: Field): string {
+  return field.userType ? field.userType.primitive : field.typeName;
+}
+
+/** Operand packed into the static `abi.encodePacked` — the raw primitive (user types unwrapped). */
+function staticEncodeOperand(field: StaticField): string {
+  const value = `data.${field.name}`;
+  return field.userType ? toPrimitive(field.userType, value) : value;
+}
+
+/** RHS that decodes one static field straight from `staticData` (no field-lib call). */
+function staticDecode(field: StaticField): string {
+  const bytesN = `Bytes.getBytes${field.type.staticByteLength}(staticData, ${field.byteOffset})`;
+  const primitive = cast(primitiveOf(field), bytesN);
+  return field.userType ? fromPrimitive(field.userType, primitive) : primitive;
+}
+
+/** Operand packed into the dynamic `abi.encodePacked`. */
+function dynamicEncodeOperand(field: DynamicField): string {
+  if (field.typeName === "bytes" || field.typeName === "string") return `bytes(data.${field.name})`;
+  return `EncodeArray.encode(data.${field.name})`;
+}
+
+/** Byte length of one dynamic field, for `EncodedLengthsLib.pack`. */
+function dynamicByteLength(field: DynamicField): string {
+  if (field.typeName === "bytes" || field.typeName === "string") return `bytes(data.${field.name}).length`;
+  return `data.${field.name}.length * ${field.type.elementByteLength}`;
+}
+
+/** Statements that decode one dynamic field straight from `dynamicData` (no field-lib call). */
+function dynamicDecode(field: DynamicField): string {
+  const index = field.dynamicIndex;
+  const slice = `SliceLib.getSubslice(dynamicData, _start${index}, _end${index})`;
+  const value =
+    field.typeName === "bytes"
+      ? `${slice}.toBytes()`
+      : field.typeName === "string"
+        ? `string(${slice}.toBytes())`
+        : `${slice}.decodeArray_${field.typeName.slice(0, -2)}()`;
+  return code`
+    (uint256 _start${index}, uint256 _end${index}) = DynamicRange.range(encodedLengths, ${index});
+    data.${field.name} = ${value};
   `;
 }

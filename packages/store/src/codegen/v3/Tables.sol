@@ -9,6 +9,10 @@ import { ResourceId } from "../../ResourceId.sol";
 import { FieldLayout } from "../../FieldLayout.sol";
 import { Schema } from "../../Schema.sol";
 import { EncodedLengths, EncodedLengthsLib } from "../../EncodedLengths.sol";
+import { Bytes } from "../../Bytes.sol";
+import { SliceLib } from "../../Slice.sol";
+import { DynamicRange } from "../../v3/fields/_dynamic.sol";
+
 import { BytesField, BytesFieldLib } from "../../v3/fields/BytesField.sol";
 import { Bytes32Field } from "../../v3/fields/Bytes32Field.sol";
 import { FieldLayoutField, FieldLayoutFieldLib } from "./FieldLayoutField.sol";
@@ -139,19 +143,16 @@ library TablesRecordMethods {
   /// @notice Encode `TablesData` into the store's (static, lengths, dynamic) triple.
   function _encode(TablesData memory data) internal pure returns (bytes memory, EncodedLengths, bytes memory) {
     bytes memory staticData = abi.encodePacked(
-      FieldLayoutFieldLib.encode(data.fieldLayout),
-      SchemaFieldLib.encode(data.keySchema),
-      SchemaFieldLib.encode(data.valueSchema)
+      FieldLayout.unwrap(data.fieldLayout),
+      Schema.unwrap(data.keySchema),
+      Schema.unwrap(data.valueSchema)
     );
 
     EncodedLengths encodedLengths = EncodedLengthsLib.pack(
-      BytesFieldLib.byteLength(data.abiEncodedKeyNames),
-      BytesFieldLib.byteLength(data.abiEncodedFieldNames)
+      bytes(data.abiEncodedKeyNames).length,
+      bytes(data.abiEncodedFieldNames).length
     );
-    bytes memory dynamicData = abi.encodePacked(
-      BytesFieldLib.encode(data.abiEncodedKeyNames),
-      BytesFieldLib.encode(data.abiEncodedFieldNames)
-    );
+    bytes memory dynamicData = abi.encodePacked(bytes(data.abiEncodedKeyNames), bytes(data.abiEncodedFieldNames));
     return (staticData, encodedLengths, dynamicData);
   }
 
@@ -161,10 +162,14 @@ library TablesRecordMethods {
     EncodedLengths encodedLengths,
     bytes memory dynamicData
   ) internal pure returns (TablesData memory data) {
-    data.fieldLayout = FieldLayoutFieldLib.decode(staticData, 0);
-    data.keySchema = SchemaFieldLib.decode(staticData, 32);
-    data.valueSchema = SchemaFieldLib.decode(staticData, 64);
-    data.abiEncodedKeyNames = BytesFieldLib.decode(dynamicData, encodedLengths, 0);
-    data.abiEncodedFieldNames = BytesFieldLib.decode(dynamicData, encodedLengths, 1);
+    data.fieldLayout = FieldLayout.wrap(Bytes.getBytes32(staticData, 0));
+    data.keySchema = Schema.wrap(Bytes.getBytes32(staticData, 32));
+    data.valueSchema = Schema.wrap(Bytes.getBytes32(staticData, 64));
+
+    (uint256 _start0, uint256 _end0) = DynamicRange.range(encodedLengths, 0);
+    data.abiEncodedKeyNames = SliceLib.getSubslice(dynamicData, _start0, _end0).toBytes();
+
+    (uint256 _start1, uint256 _end1) = DynamicRange.range(encodedLengths, 1);
+    data.abiEncodedFieldNames = SliceLib.getSubslice(dynamicData, _start1, _end1).toBytes();
   }
 }

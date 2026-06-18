@@ -9,6 +9,10 @@ import { ResourceId } from "../../ResourceId.sol";
 import { FieldLayout } from "../../FieldLayout.sol";
 import { Schema } from "../../Schema.sol";
 import { EncodedLengths, EncodedLengthsLib } from "../../EncodedLengths.sol";
+
+import { SliceLib } from "../../Slice.sol";
+import { DynamicRange } from "../../v3/fields/_dynamic.sol";
+import { EncodeArray } from "../../tightcoder/EncodeArray.sol";
 import { Bytes21ArrayField, Bytes21ArrayFieldLib } from "../../v3/fields/Bytes21ArrayField.sol";
 
 import { ResourceId } from "../../ResourceId.sol";
@@ -108,8 +112,8 @@ library HooksRecordMethods {
   function _encode(HooksData memory data) internal pure returns (bytes memory, EncodedLengths, bytes memory) {
     bytes memory staticData = abi.encodePacked();
 
-    EncodedLengths encodedLengths = EncodedLengthsLib.pack(Bytes21ArrayFieldLib.byteLength(data.hooks));
-    bytes memory dynamicData = abi.encodePacked(Bytes21ArrayFieldLib.encode(data.hooks));
+    EncodedLengths encodedLengths = EncodedLengthsLib.pack(data.hooks.length * 21);
+    bytes memory dynamicData = abi.encodePacked(EncodeArray.encode(data.hooks));
     return (staticData, encodedLengths, dynamicData);
   }
 
@@ -119,6 +123,7 @@ library HooksRecordMethods {
     EncodedLengths encodedLengths,
     bytes memory dynamicData
   ) internal pure returns (HooksData memory data) {
-    data.hooks = Bytes21ArrayFieldLib.decode(dynamicData, encodedLengths, 0);
+    (uint256 _start0, uint256 _end0) = DynamicRange.range(encodedLengths, 0);
+    data.hooks = SliceLib.getSubslice(dynamicData, _start0, _end0).decodeArray_bytes21();
   }
 }

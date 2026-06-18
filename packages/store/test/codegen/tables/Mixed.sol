@@ -9,6 +9,10 @@ import { ResourceId } from "../../../src/ResourceId.sol";
 import { FieldLayout } from "../../../src/FieldLayout.sol";
 import { Schema } from "../../../src/Schema.sol";
 import { EncodedLengths, EncodedLengthsLib } from "../../../src/EncodedLengths.sol";
+import { Bytes } from "../../../src/Bytes.sol";
+import { SliceLib } from "../../../src/Slice.sol";
+import { DynamicRange } from "../../../src/v3/fields/_dynamic.sol";
+import { EncodeArray } from "../../../src/tightcoder/EncodeArray.sol";
 import { Uint32Field, Uint32FieldLib } from "../../../src/v3/fields/Uint32Field.sol";
 import { Uint128Field, Uint128FieldLib } from "../../../src/v3/fields/Uint128Field.sol";
 import { Uint32ArrayField, Uint32ArrayFieldLib } from "../../../src/v3/fields/Uint32ArrayField.sol";
@@ -128,13 +132,10 @@ library MixedRecordMethods {
 
   /// @notice Encode `MixedData` into the store's (static, lengths, dynamic) triple.
   function _encode(MixedData memory data) internal pure returns (bytes memory, EncodedLengths, bytes memory) {
-    bytes memory staticData = abi.encodePacked(Uint32FieldLib.encode(data.u32), Uint128FieldLib.encode(data.u128));
+    bytes memory staticData = abi.encodePacked(data.u32, data.u128);
 
-    EncodedLengths encodedLengths = EncodedLengthsLib.pack(
-      Uint32ArrayFieldLib.byteLength(data.a32),
-      StringFieldLib.byteLength(data.s)
-    );
-    bytes memory dynamicData = abi.encodePacked(Uint32ArrayFieldLib.encode(data.a32), StringFieldLib.encode(data.s));
+    EncodedLengths encodedLengths = EncodedLengthsLib.pack(data.a32.length * 4, bytes(data.s).length);
+    bytes memory dynamicData = abi.encodePacked(EncodeArray.encode(data.a32), bytes(data.s));
     return (staticData, encodedLengths, dynamicData);
   }
 
@@ -144,9 +145,13 @@ library MixedRecordMethods {
     EncodedLengths encodedLengths,
     bytes memory dynamicData
   ) internal pure returns (MixedData memory data) {
-    data.u32 = Uint32FieldLib.decode(staticData, 0);
-    data.u128 = Uint128FieldLib.decode(staticData, 4);
-    data.a32 = Uint32ArrayFieldLib.decode(dynamicData, encodedLengths, 0);
-    data.s = StringFieldLib.decode(dynamicData, encodedLengths, 1);
+    data.u32 = uint32(Bytes.getBytes4(staticData, 0));
+    data.u128 = uint128(Bytes.getBytes16(staticData, 4));
+
+    (uint256 _start0, uint256 _end0) = DynamicRange.range(encodedLengths, 0);
+    data.a32 = SliceLib.getSubslice(dynamicData, _start0, _end0).decodeArray_uint32();
+
+    (uint256 _start1, uint256 _end1) = DynamicRange.range(encodedLengths, 1);
+    data.s = string(SliceLib.getSubslice(dynamicData, _start1, _end1).toBytes());
   }
 }

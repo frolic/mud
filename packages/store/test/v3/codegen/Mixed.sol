@@ -9,6 +9,10 @@ import { ResourceId } from "../../../src/ResourceId.sol";
 import { FieldLayout } from "../../../src/FieldLayout.sol";
 import { Schema } from "../../../src/Schema.sol";
 import { EncodedLengths, EncodedLengthsLib } from "../../../src/EncodedLengths.sol";
+import { Bytes } from "../../../src/Bytes.sol";
+import { SliceLib } from "../../../src/Slice.sol";
+import { DynamicRange } from "../../../src/v3/fields/_dynamic.sol";
+import { EncodeArray } from "../../../src/tightcoder/EncodeArray.sol";
 import { Int32Field, Int32FieldLib } from "../../../src/v3/fields/Int32Field.sol";
 import { Uint256Field, Uint256FieldLib } from "../../../src/v3/fields/Uint256Field.sol";
 import { AddressField, AddressFieldLib } from "../../../src/v3/fields/AddressField.sol";
@@ -144,21 +148,10 @@ library MixedRecordMethods {
 
   /// @notice Encode `MixedData` into the store's (static, lengths, dynamic) triple.
   function _encode(MixedData memory data) internal pure returns (bytes memory, EncodedLengths, bytes memory) {
-    bytes memory staticData = abi.encodePacked(
-      Int32FieldLib.encode(data.num),
-      Uint256FieldLib.encode(data.big),
-      AddressFieldLib.encode(data.owner),
-      BoolFieldLib.encode(data.flag)
-    );
+    bytes memory staticData = abi.encodePacked(data.num, data.big, data.owner, data.flag);
 
-    EncodedLengths encodedLengths = EncodedLengthsLib.pack(
-      StringFieldLib.byteLength(data.name),
-      Uint32ArrayFieldLib.byteLength(data.nums)
-    );
-    bytes memory dynamicData = abi.encodePacked(
-      StringFieldLib.encode(data.name),
-      Uint32ArrayFieldLib.encode(data.nums)
-    );
+    EncodedLengths encodedLengths = EncodedLengthsLib.pack(bytes(data.name).length, data.nums.length * 4);
+    bytes memory dynamicData = abi.encodePacked(bytes(data.name), EncodeArray.encode(data.nums));
     return (staticData, encodedLengths, dynamicData);
   }
 
@@ -168,11 +161,15 @@ library MixedRecordMethods {
     EncodedLengths encodedLengths,
     bytes memory dynamicData
   ) internal pure returns (MixedData memory data) {
-    data.num = Int32FieldLib.decode(staticData, 0);
-    data.big = Uint256FieldLib.decode(staticData, 4);
-    data.owner = AddressFieldLib.decode(staticData, 36);
-    data.flag = BoolFieldLib.decode(staticData, 56);
-    data.name = StringFieldLib.decode(dynamicData, encodedLengths, 0);
-    data.nums = Uint32ArrayFieldLib.decode(dynamicData, encodedLengths, 1);
+    data.num = int32(uint32(Bytes.getBytes4(staticData, 0)));
+    data.big = uint256(Bytes.getBytes32(staticData, 4));
+    data.owner = address(uint160(Bytes.getBytes20(staticData, 36)));
+    data.flag = uint8(Bytes.getBytes1(staticData, 56)) != 0;
+
+    (uint256 _start0, uint256 _end0) = DynamicRange.range(encodedLengths, 0);
+    data.name = string(SliceLib.getSubslice(dynamicData, _start0, _end0).toBytes());
+
+    (uint256 _start1, uint256 _end1) = DynamicRange.range(encodedLengths, 1);
+    data.nums = SliceLib.getSubslice(dynamicData, _start1, _end1).decodeArray_uint32();
   }
 }

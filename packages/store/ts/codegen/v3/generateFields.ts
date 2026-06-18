@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import { formatSolidity } from "@latticexyz/common/codegen";
 import { code } from "./render";
 import { abiTypeInfo } from "./abiType";
+import { cast } from "./staticCast";
 
 /**
  * Generates the shared field libraries — one per ABI type — into `src/v3/fields/`.
@@ -28,20 +29,8 @@ const staticValueTypes: string[] = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// per-family casting — the only type-specific knowledge, in one place
+// per-family casting lives in `staticCast.ts` (shared with the inlined record codec)
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** Cast a `bytesN`-valued expression to the Solidity value type. */
-function cast(abiType: string, bytesN: string): string {
-  if (abiType === "bool") return `uint8(${bytesN}) != 0`;
-  if (abiType === "address") return `address(uint160(${bytesN}))`;
-  if (/^bytes\d+$/.test(abiType)) return bytesN;
-  const uintBits = abiType.match(/^uint(\d+)$/)?.[1];
-  if (uintBits) return `uint${uintBits}(${bytesN})`;
-  const intBits = abiType.match(/^int(\d+)$/)?.[1];
-  if (intBits) return `int${intBits}(uint${intBits}(${bytesN}))`;
-  throw new Error(`No cast for ${abiType}`);
-}
 
 const byteLength = (abiType: string) => abiTypeInfo(abiType).staticByteLength!;
 const handleName = (abiType: string) => abiTypeInfo(abiType).fieldHandle;

@@ -9,6 +9,8 @@ import { ResourceId } from "../../ResourceId.sol";
 import { FieldLayout } from "../../FieldLayout.sol";
 import { Schema } from "../../Schema.sol";
 import { EncodedLengths, EncodedLengthsLib } from "../../EncodedLengths.sol";
+import { Bytes } from "../../Bytes.sol";
+
 import { BoolField, BoolFieldLib } from "../../v3/fields/BoolField.sol";
 
 import { ResourceId } from "../../ResourceId.sol";
@@ -109,7 +111,7 @@ library ResourceIdsRecordMethods {
 
   /// @notice Encode `ResourceIdsData` into the store's (static, lengths, dynamic) triple.
   function _encode(ResourceIdsData memory data) internal pure returns (bytes memory, EncodedLengths, bytes memory) {
-    bytes memory staticData = abi.encodePacked(BoolFieldLib.encode(data.exists));
+    bytes memory staticData = abi.encodePacked(data.exists);
     return (staticData, EncodedLengths.wrap(bytes32(0)), new bytes(0));
   }
 
@@ -119,6 +121,6 @@ library ResourceIdsRecordMethods {
     EncodedLengths encodedLengths,
     bytes memory dynamicData
   ) internal pure returns (ResourceIdsData memory data) {
-    data.exists = BoolFieldLib.decode(staticData, 0);
+    data.exists = uint8(Bytes.getBytes1(staticData, 0)) != 0;
   }
 }

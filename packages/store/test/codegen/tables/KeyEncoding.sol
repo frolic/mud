@@ -9,6 +9,8 @@ import { ResourceId } from "../../../src/ResourceId.sol";
 import { FieldLayout } from "../../../src/FieldLayout.sol";
 import { Schema } from "../../../src/Schema.sol";
 import { EncodedLengths, EncodedLengthsLib } from "../../../src/EncodedLengths.sol";
+import { Bytes } from "../../../src/Bytes.sol";
+
 import { BoolField, BoolFieldLib } from "../../../src/v3/fields/BoolField.sol";
 
 import { ExampleEnum } from "./ExampleEnum.sol";
@@ -140,7 +142,7 @@ library KeyEncodingRecordMethods {
 
   /// @notice Encode `KeyEncodingData` into the store's (static, lengths, dynamic) triple.
   function _encode(KeyEncodingData memory data) internal pure returns (bytes memory, EncodedLengths, bytes memory) {
-    bytes memory staticData = abi.encodePacked(BoolFieldLib.encode(data.value));
+    bytes memory staticData = abi.encodePacked(data.value);
     return (staticData, EncodedLengths.wrap(bytes32(0)), new bytes(0));
   }
 
@@ -150,6 +152,6 @@ library KeyEncodingRecordMethods {
     EncodedLengths encodedLengths,
     bytes memory dynamicData
   ) internal pure returns (KeyEncodingData memory data) {
-    data.value = BoolFieldLib.decode(staticData, 0);
+    data.value = uint8(Bytes.getBytes1(staticData, 0)) != 0;
   }
 }

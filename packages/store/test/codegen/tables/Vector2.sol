@@ -9,6 +9,8 @@ import { ResourceId } from "../../../src/ResourceId.sol";
 import { FieldLayout } from "../../../src/FieldLayout.sol";
 import { Schema } from "../../../src/Schema.sol";
 import { EncodedLengths, EncodedLengthsLib } from "../../../src/EncodedLengths.sol";
+import { Bytes } from "../../../src/Bytes.sol";
+
 import { Uint32Field, Uint32FieldLib } from "../../../src/v3/fields/Uint32Field.sol";
 
 struct Vector2Data {
@@ -111,7 +113,7 @@ library Vector2RecordMethods {
 
   /// @notice Encode `Vector2Data` into the store's (static, lengths, dynamic) triple.
   function _encode(Vector2Data memory data) internal pure returns (bytes memory, EncodedLengths, bytes memory) {
-    bytes memory staticData = abi.encodePacked(Uint32FieldLib.encode(data.x), Uint32FieldLib.encode(data.y));
+    bytes memory staticData = abi.encodePacked(data.x, data.y);
     return (staticData, EncodedLengths.wrap(bytes32(0)), new bytes(0));
   }
 
@@ -121,7 +123,7 @@ library Vector2RecordMethods {
     EncodedLengths encodedLengths,
     bytes memory dynamicData
   ) internal pure returns (Vector2Data memory data) {
-    data.x = Uint32FieldLib.decode(staticData, 0);
-    data.y = Uint32FieldLib.decode(staticData, 4);
+    data.x = uint32(Bytes.getBytes4(staticData, 0));
+    data.y = uint32(Bytes.getBytes4(staticData, 4));
   }
 }

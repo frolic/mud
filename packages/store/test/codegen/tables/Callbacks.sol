@@ -9,6 +9,10 @@ import { ResourceId } from "../../../src/ResourceId.sol";
 import { FieldLayout } from "../../../src/FieldLayout.sol";
 import { Schema } from "../../../src/Schema.sol";
 import { EncodedLengths, EncodedLengthsLib } from "../../../src/EncodedLengths.sol";
+
+import { SliceLib } from "../../../src/Slice.sol";
+import { DynamicRange } from "../../../src/v3/fields/_dynamic.sol";
+import { EncodeArray } from "../../../src/tightcoder/EncodeArray.sol";
 import { Bytes24ArrayField, Bytes24ArrayFieldLib } from "../../../src/v3/fields/Bytes24ArrayField.sol";
 
 struct CallbacksData {
@@ -106,8 +110,8 @@ library CallbacksRecordMethods {
   function _encode(CallbacksData memory data) internal pure returns (bytes memory, EncodedLengths, bytes memory) {
     bytes memory staticData = abi.encodePacked();
 
-    EncodedLengths encodedLengths = EncodedLengthsLib.pack(Bytes24ArrayFieldLib.byteLength(data.value));
-    bytes memory dynamicData = abi.encodePacked(Bytes24ArrayFieldLib.encode(data.value));
+    EncodedLengths encodedLengths = EncodedLengthsLib.pack(data.value.length * 24);
+    bytes memory dynamicData = abi.encodePacked(EncodeArray.encode(data.value));
     return (staticData, encodedLengths, dynamicData);
   }
 
@@ -117,6 +121,7 @@ library CallbacksRecordMethods {
     EncodedLengths encodedLengths,
     bytes memory dynamicData
   ) internal pure returns (CallbacksData memory data) {
-    data.value = Bytes24ArrayFieldLib.decode(dynamicData, encodedLengths, 0);
+    (uint256 _start0, uint256 _end0) = DynamicRange.range(encodedLengths, 0);
+    data.value = SliceLib.getSubslice(dynamicData, _start0, _end0).decodeArray_bytes24();
   }
 }
