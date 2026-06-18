@@ -4,8 +4,8 @@ import { defineStore } from "../../config/v2/store";
 import { tablegen } from "./tablegen";
 
 /**
- * Generates the store's own core tables on v3 (the first half of the store migration).
- * `Hooks` is skipped — it uses `tableIdArgument`, a noted follow-up.
+ * Generates the store's own core tables on v3 into their real home, `src/codegen/v3/`,
+ * so `StoreCore`/`Hook` consume them in place of the v2 `src/codegen/tables/*`.
  *
  * Run: `pnpm tsx ts/codegen/v3/convertStore.ts`
  */
@@ -40,7 +40,7 @@ const config = defineStore({
 
 const written = await tablegen({
   rootDir,
-  outputDir: path.join(rootDir, "test/v3/store-codegen"),
+  outputDir: path.join(rootDir, "src/codegen/v3"),
   tables: Object.values(config.tables),
   userTypes: config.userTypes,
   storeImportPath: config.codegen.storeImportPath,
