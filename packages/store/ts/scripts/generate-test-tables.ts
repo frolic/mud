@@ -1,8 +1,14 @@
-import { tablegen } from "../codegen";
-import { defineStore } from "../config/v2/store";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { defineStore } from "../config/v2/store";
+import { tablegen } from "../codegen/v3/tablegen";
 
+/**
+ * Generates the store package's test-fixture tables on v3, into `test/codegen/tables`.
+ *
+ * Same config (and therefore same on-chain constants) as before; the generated Solidity is
+ * now the v3 handle API. Run: `pnpm tsx ts/scripts/generate-test-tables.ts`.
+ */
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 const config = defineStore({
@@ -51,4 +57,13 @@ const config = defineStore({
   },
 });
 
-await tablegen({ rootDir, config });
+const written = await tablegen({
+  rootDir,
+  outputDir: path.join(rootDir, "test/codegen/tables"),
+  tables: Object.values(config.tables),
+  userTypes: config.userTypes,
+  enums: config.enums,
+  storeImportPath: config.codegen.storeImportPath,
+});
+
+console.log(`generated ${written.length} files`);
