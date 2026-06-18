@@ -143,6 +143,15 @@ are built on, so the escape hatch costs nothing extra to provide. `_decodeKey` i
 inverse of `_encodeKey` (raw `keyTuple` → typed key), for store hooks and generic code
 that receive a keyTuple rather than construct one.
 
+> **Naming, to revisit:** these low-level members are `_`-prefixed because they share
+> the per-table library with the field accessors (`x()`, `name()`, …), and user field
+> names can't start with `_` — so the prefix guarantees the framework helpers never
+> collide with a field. **Alternative to consider:** move them to a separate
+> per-table codec library (e.g. `MixedCodec.encodeKey`/`.decode`) — being a distinct
+> type, it can't collide with field accessors, giving clean un-prefixed names at the
+> cost of one more generated symbol per table. The `_` and the separate-lib approaches
+> are interchangeable; this picks `_` for now.
+
 ## Revised remaining work
 
 1. ~~User types.~~ ~~`StoreCore` fast path.~~ **Done.**
