@@ -1,5 +1,5 @@
-import type { Table, UserTypes } from "../config/v2/output";
-import { TableCodegen } from "./types";
+import type { Table } from "../config/v2/output";
+import { TableCodegen, UserType } from "./types";
 import { toTableCodegen } from "./toTableCodegen";
 
 /**
@@ -9,8 +9,15 @@ import { toTableCodegen } from "./toTableCodegen";
  * `internalType` is the user-typed name (or the primitive). This maps those onto the
  * minimal `TableInput` the resolver consumes; everything else (offsets, dynamic
  * indices, fieldLayout/schema hex, key encoding) is computed by `toTableCodegen`.
+ *
+ * `userTypes` is the unified map (UDVTs + enums) built by `tablegen`, keyed by the name
+ * the schema's `internalType` references.
  */
-export function fromConfigTable(table: Table, userTypes: UserTypes, storeImportPath: string): TableCodegen {
+export function fromConfigTable(
+  table: Table,
+  userTypes: Record<string, UserType>,
+  storeImportPath: string,
+): TableCodegen {
   const named = (name: string) => ({ name, type: table.schema[name].internalType });
 
   const codegen = toTableCodegen({
@@ -21,12 +28,7 @@ export function fromConfigTable(table: Table, userTypes: UserTypes, storeImportP
     fields: Object.keys(table.schema)
       .filter((name) => !table.key.includes(name))
       .map(named),
-    userTypes: Object.fromEntries(
-      Object.entries(userTypes).map(([name, userType]) => [
-        name,
-        { primitive: userType.type, filePath: userType.filePath },
-      ]),
-    ),
+    userTypes,
     storeImportPath,
   });
 

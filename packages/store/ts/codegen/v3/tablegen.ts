@@ -2,9 +2,11 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { formatSolidity } from "@latticexyz/common/codegen";
 import type { Table, UserTypes } from "../config/v2/output";
+import { UserType } from "./types";
 import { fromConfigTable } from "./fromConfig";
 import { renderTable } from "./renderTable";
 import { renderUserTypeField } from "./renderUserTypeField";
+import { renderEnum } from "./renderEnum";
 import { abiTypeInfo } from "./abiType";
 
 /**
@@ -20,6 +22,8 @@ export async function tablegen(options: {
   readonly outputDir: string;
   readonly tables: readonly Table[];
   readonly userTypes: UserTypes;
+  /** Config-declared enums, by name → ordered variants. Codegen authors the declaration. */
+  readonly enums?: Readonly<Record<string, readonly string[]>>;
   /** `codegen.storeImportPath`, e.g. `@latticexyz/store/src` or `./src`. */
   readonly storeImportPath: string;
 }): Promise<string[]> {
@@ -28,17 +32,28 @@ export async function tablegen(options: {
 
   // Import paths, resolved relative to the output dir.
   const storeImportPath = relImport(options.storeImportPath);
-  const userTypes: UserTypes = Object.fromEntries(
-    Object.entries(options.userTypes).map(([name, userType]) => [
-      name,
-      { type: userType.type, filePath: relImport(userType.filePath) },
-    ]),
-  );
+
+  // Unified user-type map (UDVTs + enums) in the v3 `UserType` shape. UDVT files are the user's
+  // (relativized); enum files are generated into this dir, so they import as `./Name.sol`.
+  const userTypes: Record<string, UserType> = {
+    ...Object.fromEntries(
+      Object.entries(options.userTypes).map(([name, userType]) => [
+        name,
+        { name, primitive: userType.type, filePath: relImport(userType.filePath) },
+      ]),
+    ),
+    ...Object.fromEntries(
+      Object.entries(options.enums ?? {}).map(([name, variants]) => [
+        name,
+        { name, primitive: "uint8", filePath: `./${name}.sol`, enumVariants: variants },
+      ]),
+    ),
+  };
 
   await fs.mkdir(outputDir, { recursive: true });
   const written: string[] = [];
 
-  // One wrapper per user type actually referenced by these tables.
+  // One handle per user type actually referenced by these tables — plus, for enums, the declaration.
   const referenced = new Set(
     options.tables.flatMap((table) =>
       Object.values(table.schema)
@@ -47,7 +62,10 @@ export async function tablegen(options: {
     ),
   );
   for (const name of referenced) {
-    const userType = { name, primitive: userTypes[name].type, filePath: userTypes[name].filePath };
+    const userType = userTypes[name];
+    if (userType.enumVariants) {
+      await write(path.join(outputDir, `${name}.sol`), renderEnum(name, userType.enumVariants), written);
+    }
     await write(path.join(outputDir, `${name}Field.sol`), renderUserTypeField(userType, storeImportPath), written);
   }
 

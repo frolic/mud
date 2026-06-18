@@ -4,6 +4,7 @@ import { abiTypeInfo, isDynamic } from "./abiType";
 import { toTableCodegen } from "./toTableCodegen";
 import { renderTable } from "./renderTable";
 import { renderUserTypeField } from "./renderUserTypeField";
+import { renderEnum } from "./renderEnum";
 import { StaticField, DynamicField } from "./types";
 
 describe("code", () => {
@@ -154,3 +155,64 @@ describe("user types", () => {
     expect(wrapper).toContain("self.inner.save(MyId.unwrap(value));");
   });
 });
+
+describe("enums", () => {
+  // An enum is a user type over uint8: cast conversions (not wrap/unwrap), codegen-authored declaration.
+  const enumType = {
+    name: "Direction",
+    primitive: "uint8",
+    filePath: "./Direction.sol",
+    enumVariants: ["None", "North", "East"],
+  } as const;
+
+  const keyed = toTableCodegen({
+    label: "Stance",
+    key: [{ name: "facing", type: "Direction" }],
+    fields: [{ name: "facing", type: "Direction" }],
+    userTypes: { Direction: enumType },
+    storeImportPath: "../../../src",
+  });
+
+  it("treats the enum as a uint8-backed field handle", () => {
+    const value = keyed.fields[0] as StaticField;
+    expect(value.typeName).toBe("Direction");
+    expect(value.type.fieldHandle).toBe("DirectionField");
+    expect(value.type.staticByteLength).toBe(1); // the uint8 it presents over
+    // Schema/layout match a plain uint8 field (the enum is uint8 on-chain).
+    const asUint8 = toTableCodegen(bare("uint8"));
+    expect(keyed.valueSchema).toBe(asUint8.valueSchema);
+    expect(keyed.fieldLayout).toBe(asUint8.fieldLayout);
+  });
+
+  it("encodes/decodes an enum key via a uint8 cast (not wrap/unwrap)", () => {
+    expect(keyed.keyFields[0].toBytes32).toBe("bytes32(uint256(uint8(facing)))");
+    expect(keyed.keyFields[0].fromKeyTuple).toBe("Direction(uint8(uint256(keyTuple[0])))");
+  });
+
+  it("renders the field wrapper with enum casts over Uint8Field", () => {
+    const wrapper = renderUserTypeField(enumType, "../../../src");
+    expect(wrapper).toContain("import { Uint8Field, Uint8FieldLib }");
+    expect(wrapper).toContain('import { Direction } from "./Direction.sol";');
+    expect(wrapper).toContain("return Direction(self.inner.load());");
+    expect(wrapper).toContain("self.inner.save(uint8(value));");
+    expect(wrapper).toContain("return Direction(Uint8FieldLib.decode(staticData, offset));");
+  });
+
+  it("authors the enum declaration from the config variants", () => {
+    const declaration = renderEnum("Direction", ["None", "North", "East"]);
+    expect(declaration).toContain("enum Direction {");
+    expect(declaration).toContain("None,");
+    expect(declaration).toContain("East");
+    expect(declaration).not.toContain("East,"); // no trailing comma on the last variant
+  });
+});
+
+// A one-field table whose only value is `type`, for schema comparisons.
+function bare(type: string) {
+  return {
+    label: "Bare",
+    key: [{ name: "id", type: "bytes32" }],
+    fields: [{ name: "v", type }],
+    storeImportPath: "../../../src",
+  };
+}

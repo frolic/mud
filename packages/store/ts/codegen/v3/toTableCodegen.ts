@@ -1,5 +1,6 @@
 import { abiTypeInfo, AbiTypeInfo, isDynamic } from "./abiType";
 import { Field, Hex, KeyField, TableCodegen, UserType } from "./types";
+import { fromPrimitive, toPrimitive } from "./userTypeConvert";
 
 /**
  * The resolver: a plain table description in, a fully-precomputed {@link TableCodegen}
@@ -11,8 +12,8 @@ import { Field, Hex, KeyField, TableCodegen, UserType } from "./types";
  * MUD packages), which keeps it trivially testable and the boundary crisp.
  *
  * The input is intentionally minimal and decoupled from the full mud.config shape;
- * a thin wrapper maps a resolved config table onto this (built-in ABI types only for
- * now — user types are a follow-up).
+ * a thin wrapper maps a resolved config table onto this. Built-in ABI types, UDVTs,
+ * and enums are all supported (the latter two via `userTypes`).
  */
 export type TableInput = {
   readonly label: string;
@@ -22,8 +23,13 @@ export type TableInput = {
   readonly key: readonly NamedType[];
   /** Value fields, in any order — sorted static-first here (a Store invariant). */
   readonly fields: readonly NamedType[];
-  /** User types referenced by `key`/`fields`, by name (the "import" case: a UDVT over a primitive). */
-  readonly userTypes?: Readonly<Record<string, { primitive: string; filePath: string }>>;
+  /**
+   * User types referenced by `key`/`fields`, by name (the "import" case). Each presents over a
+   * primitive; `enumVariants` marks an enum (over `uint8`, cast conversions) vs a UDVT (wrap/unwrap).
+   */
+  readonly userTypes?: Readonly<
+    Record<string, { primitive: string; filePath: string; enumVariants?: readonly string[] }>
+  >;
   /** Import path to the store runtime root, relative to the generated file. */
   readonly storeImportPath: string;
 };
@@ -37,7 +43,12 @@ export function toTableCodegen(input: TableInput): TableCodegen {
   // Resolve a declared type to its primitive ABI type (a user type → what it wraps).
   const primitive = (type: string): string => userTypes[type]?.primitive ?? type;
   const userTypeOf = (type: string): UserType | undefined =>
-    userTypes[type] && { name: type, primitive: userTypes[type].primitive, filePath: userTypes[type].filePath };
+    userTypes[type] && {
+      name: type,
+      primitive: userTypes[type].primitive,
+      filePath: userTypes[type].filePath,
+      enumVariants: userTypes[type].enumVariants,
+    };
 
   // Store requires static fields before dynamic; this order drives the struct,
   // schema, field layout, and codec alike, so we sort once here.
@@ -156,7 +167,7 @@ function schemaTypeId(abiType: string): number {
 
 /** The expression that converts a key field to `bytes32` (unwrapping a user type first). */
 function keyToBytes32(name: string, declaredType: string, userType: UserType | undefined): string {
-  const value = userType ? `${userType.name}.unwrap(${name})` : name;
+  const value = userType ? toPrimitive(userType, name) : name;
   const primitive = userType?.primitive ?? declaredType;
   if (primitive === "bytes32") return value;
   if (/^bytes\d{1,2}$/.test(primitive)) return `bytes32(${value})`;
@@ -178,7 +189,7 @@ function keyFromBytes32(slot: string, declaredType: string, userType: UserType |
   else if (primitive === "address") value = `address(uint160(uint256(${slot})))`;
   else if (primitive === "bool") value = `uint256(${slot}) != 0`;
   else throw new Error(`Cannot decode key of type ${declaredType}`);
-  return userType ? `${userType.name}.wrap(${value})` : value;
+  return userType ? fromPrimitive(userType, value) : value;
 }
 
 const ascii = (text: string, bytes: number): string =>

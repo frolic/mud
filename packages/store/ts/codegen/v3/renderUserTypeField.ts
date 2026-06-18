@@ -1,19 +1,22 @@
 import { code } from "./render";
 import { abiTypeInfo } from "./abiType";
 import { UserType } from "./types";
+import { fromPrimitive, toPrimitive } from "./userTypeConvert";
 
 /**
  * Renders the field handle for a user type — the "import" case of DESIGN-V3 §6.
  *
- * A user type is a UDVT the user wrote (e.g. `type ResourceId is bytes32`). Codegen
- * emits a thin handle that wraps the primitive's field handle and wraps/unwraps at
- * the boundary, so the rest of the system treats the user type as a first-class field
- * type. Generated alongside the tables that use it.
+ * A user type is either a UDVT the user wrote (`type ResourceId is bytes32`) or an enum codegen
+ * authored (`enum Direction { ... }`, over `uint8`). Both get a thin handle that wraps the
+ * primitive's field handle and converts at the boundary (wrap/unwrap for UDVTs, value cast for
+ * enums — see {@link fromPrimitive}/{@link toPrimitive}), so the rest of the system treats the
+ * user type as a first-class field type. Generated alongside the tables that use it.
  */
 export function renderUserTypeField(userType: UserType, storeImportPath: string): string {
   const Field = `${userType.name}Field`;
   const Inner = abiTypeInfo(userType.primitive).fieldHandle;
   const { name } = userType;
+  const wrapped = userType.enumVariants ? "enum" : "UDVT";
 
   return code`
     // SPDX-License-Identifier: MIT
@@ -24,29 +27,29 @@ export function renderUserTypeField(userType: UserType, storeImportPath: string)
     import { ${Inner}, ${Inner}Lib } from "${storeImportPath}/v3/fields/${Inner}.sol";
     import { ${name} } from "${userType.filePath}";
 
-    /// @notice A handle to one \`${name}\` field (a user type wrapping \`${userType.primitive}\`).
+    /// @notice A handle to one \`${name}\` field (a ${wrapped} over \`${userType.primitive}\`).
     struct ${Field} {
       ${Inner} inner;
     }
 
     using ${Field}Lib for ${Field} global;
 
-    /// @notice The \`${name}\` field codec: delegates to \`${Inner}Lib\`, wrapping/unwrapping the UDVT.
+    /// @notice The \`${name}\` field codec: delegates to \`${Inner}Lib\`, converting at the boundary.
     library ${Field}Lib {
       function load(${Field} memory self) internal view returns (${name}) {
-        return ${name}.wrap(self.inner.load());
+        return ${fromPrimitive(userType, "self.inner.load()")};
       }
 
       function save(${Field} memory self, ${name} value) internal {
-        self.inner.save(${name}.unwrap(value));
+        self.inner.save(${toPrimitive(userType, "value")});
       }
 
       function encode(${name} value) internal pure returns (bytes memory) {
-        return ${Inner}Lib.encode(${name}.unwrap(value));
+        return ${Inner}Lib.encode(${toPrimitive(userType, "value")});
       }
 
       function decode(bytes memory staticData, uint256 offset) internal pure returns (${name}) {
-        return ${name}.wrap(${Inner}Lib.decode(staticData, offset));
+        return ${fromPrimitive(userType, `${Inner}Lib.decode(staticData, offset)`)};
       }
     }
   `;

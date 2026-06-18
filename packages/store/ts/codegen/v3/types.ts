@@ -59,14 +59,22 @@ type FieldBase = {
   readonly userType?: UserType;
 };
 
-/** A user-defined value type wrapping a single primitive ABI type (the "import" case of DESIGN-V3 §6). */
+/**
+ * A type that presents over a single primitive ABI type — the "import" case of DESIGN-V3 §6.
+ *
+ * Covers both UDVTs (`type ResourceId is bytes32`, user-authored, wrap/unwrap conversions) and
+ * enums (`enum Direction { ... }`, codegen-authored over `uint8`, cast conversions). `enumVariants`
+ * discriminates: present ⇒ enum. Both flow through the same field-wrapper machinery.
+ */
 export type UserType = {
-  /** The UDVT, e.g. `ResourceId`. */
+  /** The type, e.g. `ResourceId` or `Direction`. */
   readonly name: string;
-  /** The primitive it wraps, e.g. `bytes32` — drives schema, layout, and the underlying field handle. */
+  /** The primitive it presents over, e.g. `bytes32` (UDVT) or `uint8` (enum) — drives schema/layout/handle. */
   readonly primitive: string;
-  /** Import path to the file declaring the UDVT. */
+  /** Import path to the file declaring the type (the user's file for a UDVT; the generated file for an enum). */
   readonly filePath: string;
+  /** Present iff this is an enum; the ordered variant names, used to author the declaration. */
+  readonly enumVariants?: readonly string[];
 };
 
 export type KeyField = {
