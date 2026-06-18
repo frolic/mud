@@ -15,7 +15,7 @@ import { StoreMock } from "../test/StoreMock.sol";
 import { IStoreErrors } from "../src/IStoreErrors.sol";
 import { IStore } from "../src/IStore.sol";
 import { ResourceId, ResourceIdLib } from "../src/ResourceId.sol";
-import { ResourceIds } from "../src/codegen/tables/ResourceIds.sol";
+import { ResourceIds } from "../src/codegen/v3/ResourceIds.sol";
 import { RESOURCE_TABLE, RESOURCE_OFFCHAIN_TABLE } from "../src/storeResourceTypes.sol";
 import { FieldLayoutEncodeHelper } from "./FieldLayoutEncodeHelper.sol";
 import { SchemaEncodeHelper } from "./SchemaEncodeHelper.sol";
@@ -106,11 +106,11 @@ contract StoreCoreGasTest is Test, GasReporter, StoreMock {
     StoreCore.registerTable(tableId, fieldLayout, defaultKeySchema, valueSchema, new string[](1), new string[](4));
 
     startGasReport("Check for existence of table (existent)");
-    ResourceIds._getExists(tableId);
+    ResourceIds(tableId).own().exists().load();
     endGasReport();
 
     startGasReport("check for existence of table (non-existent)");
-    ResourceIds._getExists(tableId2);
+    ResourceIds(tableId2).own().exists().load();
     endGasReport();
   }
 

@@ -6,14 +6,14 @@ pragma solidity >=0.8.24;
 import { Bytes32Field, Bytes32FieldLib } from "../../../src/v3/fields/Bytes32Field.sol";
 import { ResourceId } from "../../../src/ResourceId.sol";
 
-/// @notice A handle to one `ResourceId` field (a user type wrapping `bytes32`).
+/// @notice A handle to one `ResourceId` field (a UDVT over `bytes32`).
 struct ResourceIdField {
   Bytes32Field inner;
 }
 
 using ResourceIdFieldLib for ResourceIdField global;
 
-/// @notice The `ResourceId` field codec: delegates to `Bytes32FieldLib`, wrapping/unwrapping the UDVT.
+/// @notice The `ResourceId` field codec: delegates to `Bytes32FieldLib`, converting at the boundary.
 library ResourceIdFieldLib {
   function load(ResourceIdField memory self) internal view returns (ResourceId) {
     return ResourceId.wrap(self.inner.load());

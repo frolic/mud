@@ -6,14 +6,14 @@ pragma solidity >=0.8.24;
 import { Bytes32Field, Bytes32FieldLib } from "../../../src/v3/fields/Bytes32Field.sol";
 import { Schema } from "../../../src/Schema.sol";
 
-/// @notice A handle to one `Schema` field (a user type wrapping `bytes32`).
+/// @notice A handle to one `Schema` field (a UDVT over `bytes32`).
 struct SchemaField {
   Bytes32Field inner;
 }
 
 using SchemaFieldLib for SchemaField global;
 
-/// @notice The `Schema` field codec: delegates to `Bytes32FieldLib`, wrapping/unwrapping the UDVT.
+/// @notice The `Schema` field codec: delegates to `Bytes32FieldLib`, converting at the boundary.
 library SchemaFieldLib {
   function load(SchemaField memory self) internal view returns (Schema) {
     return Schema.wrap(self.inner.load());
