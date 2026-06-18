@@ -82,6 +82,16 @@ inlining). **via-IR does not help and slightly hurts**, so the "via-IR will fold
 it" assumption is wrong; reducing it means flattening the call layers / a leaner
 handle, not the optimizer.
 
+**Flattening attempt (measured, negative result):** inlining the `StoreAccess`
+dispatch directly into the field lib — removing one call hop — recovered only
+**~61 gas** in the real chain (943 → 882), not the ~393 a proxy suggested (the
+proxy also skipped the field/wrapper struct construction). The legacy optimizer
+already collapses the dispatch hop, so the ~940 is dominated by **memory struct
+construction** (`Record` + dynamic `keyTuple` + nested field/wrapper structs) —
+intrinsic to "handles as values," not the call layering. Reducing it meaningfully
+needs a leaner handle (a redesign), and the `keyTuple` array alloc (~220) is shared
+with v2 regardless. Flattening was reverted: not worth the duplicated dispatch.
+
 The overhead is paid **once per handle construction**, so it amortizes across
 whole-record `load`/`save` (the 56-65% common case) and across reusing one handle
 for several fields; it bites on hot single-field loops.

@@ -7,6 +7,8 @@ import { StoreCore } from "../../src/StoreCore.sol";
 import { ResourceId } from "../../src/ResourceId.sol";
 import { FieldLayout } from "../../src/FieldLayout.sol";
 import { Schema } from "../../src/Schema.sol";
+import { StoreSwitch } from "../../src/StoreSwitch.sol";
+import { IStore } from "../../src/IStore.sol";
 import { Record, StoreAccess } from "../../src/v3/Record.sol";
 import { Bytes32Field } from "../../src/v3/fields/Bytes32Field.sol";
 
@@ -60,6 +62,37 @@ contract GasBreakdownTest is Test, StoreMock {
 
   function readV3() external view returns (FieldLayout) {
     return MetadataBench(subject).own().fieldLayout().load();
+  }
+
+  /// @notice Builds the handle's Record but inlines the dispatch + read + cast (no StoreAccess
+  ///         lib hop, no intermediate field-handle struct). Isolates "indirection layers" cost.
+  function readStructInline() external view returns (FieldLayout) {
+    Record memory r = MetadataBench(subject).own().record;
+    bytes32 raw;
+    if (r.store == address(0))
+      raw = StoreSwitch.getStaticField(r.tableId, r.keyTuple, 0, MetadataBenchRecordMethods._fieldLayout);
+    else if (r.store == address(this))
+      raw = StoreCore.getStaticField(r.tableId, r.keyTuple, 0, MetadataBenchRecordMethods._fieldLayout);
+    else raw = IStore(r.store).getStaticField(r.tableId, r.keyTuple, 0, MetadataBenchRecordMethods._fieldLayout);
+    return FieldLayout.wrap(raw);
+  }
+
+  /// @notice Splits the overhead: floor (bare) → struct+inline-dispatch → full handle chain.
+  function testFlatten() public {
+    this.readV2();
+    this.readStructInline();
+    this.readV3(); // warm everything
+    this.readV2();
+    uint256 floorGas = vm.lastCallGas().gasTotalUsed;
+    this.readStructInline();
+    uint256 structGas = vm.lastCallGas().gasTotalUsed;
+    this.readV3();
+    uint256 handleGas = vm.lastCallGas().gasTotalUsed;
+    _meter("floor (bare)", floorGas);
+    _meter("struct + inline dispatch", structGas);
+    _meter("full handle chain", handleGas);
+    emit log_named_int("struct cost (struct - floor)", int256(structGas) - int256(floorGas));
+    emit log_named_int("indirection cost (handle - struct)", int256(handleGas) - int256(structGas));
   }
 
   /// @notice Authoritative: measures whole-call gas via vm.lastCallGas (no gasleft() brackets).
