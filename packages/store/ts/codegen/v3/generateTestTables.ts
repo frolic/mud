@@ -13,6 +13,13 @@ import { toTableCodegen, TableInput } from "./toTableCodegen";
 const outputDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../test/v3/codegen");
 const storeImportPath = "../../../src";
 
+// User types referenced by the fixtures below (the store's own metadata UDVTs + a test one).
+const storeUserTypes = {
+  ResourceId: { primitive: "bytes32", filePath: "../../../src/ResourceId.sol" },
+  FieldLayout: { primitive: "bytes32", filePath: "../../../src/FieldLayout.sol" },
+  Schema: { primitive: "bytes32", filePath: "../../../src/Schema.sol" },
+} as const;
+
 const tables: TableInput[] = [
   // Every field shape: static int/uint/address/bool + dynamic string/array.
   {
@@ -39,17 +46,35 @@ const tables: TableInput[] = [
     userTypes: { MyId: { primitive: "bytes32", filePath: "../MyId.sol" } },
     storeImportPath,
   },
+  // A faithful copy of the store's own `Tables` metadata table — the hot-path benchmark target.
+  {
+    label: "MetadataBench",
+    key: [{ name: "tableId", type: "ResourceId" }],
+    fields: [
+      { name: "fieldLayout", type: "FieldLayout" },
+      { name: "keySchema", type: "Schema" },
+      { name: "valueSchema", type: "Schema" },
+      { name: "abiEncodedKeyNames", type: "bytes" },
+      { name: "abiEncodedFieldNames", type: "bytes" },
+    ],
+    userTypes: storeUserTypes,
+    storeImportPath,
+  },
 ];
 
 await fs.mkdir(outputDir, { recursive: true });
 
 // User-type field wrappers used by the tables above.
-await fs.writeFile(
-  path.join(outputDir, "MyIdField.sol"),
-  await formatSolidity(
-    renderUserTypeField({ name: "MyId", primitive: "bytes32", filePath: "../MyId.sol" }, storeImportPath),
-  ),
-);
+const userTypeDefs = [
+  { name: "MyId", primitive: "bytes32", filePath: "../MyId.sol" },
+  ...Object.entries(storeUserTypes).map(([name, def]) => ({ name, ...def })),
+];
+for (const userType of userTypeDefs) {
+  await fs.writeFile(
+    path.join(outputDir, `${userType.name}Field.sol`),
+    await formatSolidity(renderUserTypeField(userType, storeImportPath)),
+  );
+}
 
 for (const input of tables) {
   const source = await formatSolidity(renderTable(toTableCodegen(input)));

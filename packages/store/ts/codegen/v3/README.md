@@ -52,15 +52,39 @@ Plus **user types** (`renderUserTypeField.ts`): a UDVT field generates a handle
 that wraps the primitive's handle and wraps/unwraps at the boundary. Works as key
 and value (`test/v3/Owned.t.sol`).
 
-**Remaining, toward replacing the old codegen (each stage its own commit, ends green):**
+Plus the **`StoreCore` fast path** (`own()` → internal `StoreCore`) is in place.
 
-1. ~~User types in the codegen.~~ **Done.**
-2. **Config adapter** — map a resolved `mud.config` table onto `TableInput`
-   (namespaces, user types, codegen options); wire into `tablegen`.
-3. **`StoreCore` fast path** — add the `store == address(this)` → `StoreCore`
-   branch to `StoreAccess` for the gas-optimal `own()` path.
-4. **Migrate store** — regenerate the four core tables on the v3 API and update
-   the 25 call sites in `StoreCore.sol` + `Hook.sol`. Safety-critical (watch the
-   `StoreCore.initialize` core-table bootstrapping order).
-5. **Migrate world** — 12 tables, ~79 call sites, plus world's own system codegen.
-6. **Delete the old codegen** — once 4 and 5 are green.
+## Hot-path gas finding (measured, decisive)
+
+`test/v3/MetadataBench.t.sol` benchmarks a v3 handle field read against the bare
+`StoreCore` path on a faithful copy of the store's own `Tables` metadata table:
+
+| path                                                     | gas              | notes                            |
+| -------------------------------------------------------- | ---------------- | -------------------------------- |
+| bare `StoreCore.getStaticField` (≈ v2 `_getFieldLayout`) | ~500–800         |                                  |
+| `Table(id).own().fieldLayout().load()` (v3 handle)       | ~3,900–4,700     |                                  |
+| **overhead**                                             | **~3,100–4,200** | **via-IR does not fold it away** |
+
+The overhead is handle construction — the `bytes32[] keyTuple` array plus the
+nested `Record`/field structs allocated in memory — and the dispatch indirection.
+It's paid **once per handle construction**, so it amortizes across whole-record
+`load`/`save` (the 56–65% common case) and across reusing one handle for several
+fields; it is **not** amortized when you build a fresh handle per single field.
+
+**Architectural consequence:** `StoreCore` reads its core metadata tables
+(`getFieldLayout`, hooks) as single fields on _every_ store op. Routing those
+through v3 handles would add ~3k gas to every operation in every world — a
+non-starter. So **`StoreCore` must keep its cheap internal path; the v3 handle API
+is for application/developer code, where the ergonomics are worth ~3k gas relative
+to the work being done.** This reverses the earlier "delete all old codegen" goal
+for the _core_ tables (see PR description for the full trade-off).
+
+## Revised remaining work
+
+1. ~~User types.~~ ~~`StoreCore` fast path.~~ **Done.**
+2. **Config adapter** — resolved `mud.config` table → `TableInput`, wired into
+   `tablegen`, so app tables generate on v3.
+3. **Migrate app-facing tables** (world tables, examples) to v3. Leave `StoreCore`'s
+   core-table access on the bare path (a lean internal accessor, not v3 handles).
+4. **Retire the old codegen for app tables** — but keep a minimal core-table path
+   for `StoreCore`. A full delete is not the goal given the gas finding.
