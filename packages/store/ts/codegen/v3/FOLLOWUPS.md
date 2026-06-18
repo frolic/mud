@@ -21,13 +21,20 @@ Things intentionally parked while focusing on migrating the store package to v3.
 
 ## Performance
 
-- **Inline the record codec.** NEXT GAS OPTIMIZATION (planned as its own pass). Confirmed
-  by the clean v2→v3 store gas diff: whole-record ops regress while field-level/engine ops
-  are neutral — get record +3.2k–3.8k, set record (internal) +4.0k / (external) +1.3k,
-  delete (internal) +3.1k, register table +2.9k. Cause: the per-table `_encode`/`_decode`
-  delegate per field to the shared field libs where v2 inlined the casts into one function.
-  Generate a bespoke inlined per-table codec (keep field libs for handle ops) to recover
-  most of it. Validate against the `gas-report.json` labels (v2 baseline at commit 53bb8b76).
+- **Inline the record codec.** DONE — `_encode`/`_decode` inline (one `abi.encodePacked`
+  over raw primitives + direct `Bytes.getBytesN` casts) via the shared `staticCast.cast()`.
+  Clean win: net **−6,577 gas**, zero regressions (register table −1,056, set record −639,
+  get record −238, set/get Vector2 −595/−163). **But it recovered only a fraction** of the
+  v3-vs-v2 record overhead — the hypothesis that the codec caused the +3–4k was WRONG.
+  After inlining the residual is still get record **+3.3k**, set (internal) **+3.4k**,
+  register **+1.8k** over v2. The real cost is the **handle + `RecordMethods` load/save +
+  `StoreAccess` dispatch** path (Record struct alloc, the store==0 branch, the generic
+  (static,lengths,dynamic) bytes-triple round trip), not the codec. Next lever lives there.
+- **Record load/save path overhead (NEW — the real record cost).** ~+3.3k/read, +3.4k/write
+  vs v2, intrinsic to `Mixed(key).load()/.save()` going through the handle + generic
+  `RecordMethods`/`StoreAccess`. Options to explore: a low-level record path mirroring the
+  `_loadStoreHooks`/`_resourceExists` pattern (skip the handle for whole-record ops), or
+  tightening `StoreAccess`/`RecordMethods`. Measure against `gas-report.json` (v2 @53bb8b76).
 - **Group field libs into per-family files** (~12 files instead of 198). File-count only.
 - The handle overhead itself (~950) is intrinsic; lean handle / layer flattening were
   measured negative — do not revisit without a new idea.
