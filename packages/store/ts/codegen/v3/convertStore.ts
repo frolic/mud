@@ -33,6 +33,8 @@ const config = defineStore({
       key: ["tableId"],
     },
     ResourceIds: { schema: { resourceId: "ResourceId", exists: "bool" }, key: ["resourceId"] },
+    // tableIdArgument in v2 → just use `.at(tableId)` in v3; generated like any table.
+    Hooks: { schema: { resourceId: "ResourceId", hooks: "bytes21[]" }, key: ["resourceId"] },
   },
 });
 

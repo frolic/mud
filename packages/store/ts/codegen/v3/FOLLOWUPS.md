@@ -8,9 +8,12 @@ Things intentionally parked while focusing on migrating the store package to v3.
   `enum` + a field handle wrapping `Uint8Field` (cast uint8↔enum), like a user type
   over uint8. Blocker for configs that use enums (e.g. the store's own `KeyEncoding`
   test table). `convertExample` avoids enums for now.
-- **`tableIdArgument` / `storeArgument` config options.** v2 codegen options. v3 covers
-  these with `.at(tableId)` / `.own(store)` modifiers — map the config options onto
-  generating (or documenting) those instead of separate variants.
+- **`tableIdArgument` / `storeArgument` config options.** Already covered by the
+  `.at(tableId)` / `.own(store)` modifiers — no special codegen needed (verified:
+  `Hooks` generates and compiles on v3, consumed via `.at(hookTableId)`). Optional
+  nicety: honor `tableIdArgument` by emitting an entry that _takes_ the id
+  (`Hooks(tableId, key)`) instead of an unused canonical `_tableId` constant — cosmetic,
+  not a blocker.
 - **Offchain tables.** Omit read methods (reads silently return zeros) — compile error
   instead of footgun. Decide setter-only manifest shape.
 - **Index/barrel file.** Deliberately omitted (deterministic deploys, #2838). Confirm no
