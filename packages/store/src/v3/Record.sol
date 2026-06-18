@@ -3,6 +3,7 @@ pragma solidity >=0.8.24;
 
 import { IStore } from "../IStore.sol";
 import { StoreSwitch } from "../StoreSwitch.sol";
+import { StoreCore } from "../StoreCore.sol";
 import { ResourceId } from "../ResourceId.sol";
 import { FieldLayout } from "../FieldLayout.sol";
 import { EncodedLengths } from "../EncodedLengths.sol";
@@ -23,18 +24,21 @@ struct Record {
 /**
  * @notice The single point of store dispatch.
  * @dev Every read/write in the v3 runtime goes through here, and this is the only
- *      place that names {StoreSwitch} or {IStore}. The rule is uniform across ops:
+ *      place that names {StoreSwitch}, {StoreCore}, or {IStore}. The rule is uniform:
  *
- *        store == address(0)  ->  StoreSwitch (infer the store from execution context)
- *        store != address(0)  ->  IStore(store) (an explicit store, possibly this contract)
+ *        store == address(0)     ->  StoreSwitch (infer the store from execution context)
+ *        store == address(this)  ->  StoreCore   (this contract IS the store; call internally)
+ *        otherwise               ->  IStore(store) (an explicit external store)
  *
- *      `own()` on a handle pins `store` to a known address; the unpinned default
- *      stays correct in every context. (A StoreCore fast path for `store == address(this)`
- *      is a future gas optimization; routing self-calls through IStore is correct today.)
+ *      `own()` on a handle pins `store` to `address(this)`, taking the gas-optimal
+ *      internal path; the unpinned default stays correct in every context. Because
+ *      these functions are `internal` (inlined into the caller), `address(this)` is
+ *      the calling contract.
  */
 library StoreAccess {
   function getRecord(Record memory self) internal view returns (bytes memory, EncodedLengths, bytes memory) {
     if (self.store == address(0)) return StoreSwitch.getRecord(self.tableId, self.keyTuple);
+    if (self.store == address(this)) return StoreCore.getRecord(self.tableId, self.keyTuple);
     return IStore(self.store).getRecord(self.tableId, self.keyTuple);
   }
 
@@ -46,6 +50,8 @@ library StoreAccess {
   ) internal {
     if (self.store == address(0)) {
       StoreSwitch.setRecord(self.tableId, self.keyTuple, staticData, encodedLengths, dynamicData);
+    } else if (self.store == address(this)) {
+      StoreCore.setRecord(self.tableId, self.keyTuple, staticData, encodedLengths, dynamicData);
     } else {
       IStore(self.store).setRecord(self.tableId, self.keyTuple, staticData, encodedLengths, dynamicData);
     }
@@ -53,6 +59,7 @@ library StoreAccess {
 
   function deleteRecord(Record memory self) internal {
     if (self.store == address(0)) StoreSwitch.deleteRecord(self.tableId, self.keyTuple);
+    else if (self.store == address(this)) StoreCore.deleteRecord(self.tableId, self.keyTuple);
     else IStore(self.store).deleteRecord(self.tableId, self.keyTuple);
   }
 
@@ -63,28 +70,37 @@ library StoreAccess {
   ) internal view returns (bytes32) {
     if (self.store == address(0))
       return StoreSwitch.getStaticField(self.tableId, self.keyTuple, fieldIndex, fieldLayout);
+    if (self.store == address(this))
+      return StoreCore.getStaticField(self.tableId, self.keyTuple, fieldIndex, fieldLayout);
     return IStore(self.store).getStaticField(self.tableId, self.keyTuple, fieldIndex, fieldLayout);
   }
 
   function setStaticField(Record memory self, uint8 fieldIndex, bytes memory data, FieldLayout fieldLayout) internal {
     if (self.store == address(0))
       StoreSwitch.setStaticField(self.tableId, self.keyTuple, fieldIndex, data, fieldLayout);
+    else if (self.store == address(this))
+      StoreCore.setStaticField(self.tableId, self.keyTuple, fieldIndex, data, fieldLayout);
     else IStore(self.store).setStaticField(self.tableId, self.keyTuple, fieldIndex, data, fieldLayout);
   }
 
   function getDynamicField(Record memory self, uint8 dynamicFieldIndex) internal view returns (bytes memory) {
     if (self.store == address(0)) return StoreSwitch.getDynamicField(self.tableId, self.keyTuple, dynamicFieldIndex);
+    if (self.store == address(this)) return StoreCore.getDynamicField(self.tableId, self.keyTuple, dynamicFieldIndex);
     return IStore(self.store).getDynamicField(self.tableId, self.keyTuple, dynamicFieldIndex);
   }
 
   function setDynamicField(Record memory self, uint8 dynamicFieldIndex, bytes memory data) internal {
     if (self.store == address(0)) StoreSwitch.setDynamicField(self.tableId, self.keyTuple, dynamicFieldIndex, data);
+    else if (self.store == address(this))
+      StoreCore.setDynamicField(self.tableId, self.keyTuple, dynamicFieldIndex, data);
     else IStore(self.store).setDynamicField(self.tableId, self.keyTuple, dynamicFieldIndex, data);
   }
 
   function getDynamicFieldLength(Record memory self, uint8 dynamicFieldIndex) internal view returns (uint256) {
     if (self.store == address(0))
       return StoreSwitch.getDynamicFieldLength(self.tableId, self.keyTuple, dynamicFieldIndex);
+    if (self.store == address(this))
+      return StoreCore.getDynamicFieldLength(self.tableId, self.keyTuple, dynamicFieldIndex);
     return IStore(self.store).getDynamicFieldLength(self.tableId, self.keyTuple, dynamicFieldIndex);
   }
 
@@ -96,17 +112,23 @@ library StoreAccess {
   ) internal view returns (bytes memory) {
     if (self.store == address(0))
       return StoreSwitch.getDynamicFieldSlice(self.tableId, self.keyTuple, dynamicFieldIndex, start, end);
+    if (self.store == address(this))
+      return StoreCore.getDynamicFieldSlice(self.tableId, self.keyTuple, dynamicFieldIndex, start, end);
     return IStore(self.store).getDynamicFieldSlice(self.tableId, self.keyTuple, dynamicFieldIndex, start, end);
   }
 
   function pushToDynamicField(Record memory self, uint8 dynamicFieldIndex, bytes memory data) internal {
     if (self.store == address(0)) StoreSwitch.pushToDynamicField(self.tableId, self.keyTuple, dynamicFieldIndex, data);
+    else if (self.store == address(this))
+      StoreCore.pushToDynamicField(self.tableId, self.keyTuple, dynamicFieldIndex, data);
     else IStore(self.store).pushToDynamicField(self.tableId, self.keyTuple, dynamicFieldIndex, data);
   }
 
   function popFromDynamicField(Record memory self, uint8 dynamicFieldIndex, uint256 byteLengthToPop) internal {
     if (self.store == address(0))
       StoreSwitch.popFromDynamicField(self.tableId, self.keyTuple, dynamicFieldIndex, byteLengthToPop);
+    else if (self.store == address(this))
+      StoreCore.popFromDynamicField(self.tableId, self.keyTuple, dynamicFieldIndex, byteLengthToPop);
     else IStore(self.store).popFromDynamicField(self.tableId, self.keyTuple, dynamicFieldIndex, byteLengthToPop);
   }
 
@@ -126,6 +148,8 @@ library StoreAccess {
         deleteCount,
         data
       );
+    } else if (self.store == address(this)) {
+      StoreCore.spliceDynamicData(self.tableId, self.keyTuple, dynamicFieldIndex, startWithinField, deleteCount, data);
     } else {
       IStore(self.store).spliceDynamicData(
         self.tableId,
