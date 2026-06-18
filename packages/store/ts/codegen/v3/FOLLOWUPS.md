@@ -46,18 +46,22 @@ Things intentionally parked while focusing on migrating the store package to v3.
   `FieldLayout`, fold `tightcoder`/`Bytes`/`Slice`. See DESIGN-V3 §2 cleanup pass.
 - **Hook decision** — remove store hooks vs keep dynamic. See DESIGN-V3 §2.
 
-## Decisions to confirm with data (this migration produces it)
+## Decisions confirmed with data (RESOLVED)
 
-- **StoreCore on handles vs low-level primitives.** MEASURED (clean same-compiler
-  v2-vs-v3 store gas diff, StoreCore-on-v2 @HEAD~1 vs StoreCore-on-v3 @HEAD): the
-  straight handle-API conversion costs **~800 gas per handle touched**, concentrated
-  entirely in metadata access — the data read/write path is unchanged (+3–8 = noise):
-  - every record set/delete: **+~800** (the per-write `StoreHooks` hooks-list read)
-  - warm `getKeySchema`: **+1854** (2 handles), warm `getValueSchema`: **+977** (1)
-  - table registration: **+~6150** (cold; ~6–7 handles)
-  - `registerStoreHook`: **+2222** (2 handles)
-    Resolution: convert StoreCore's **hot** metadata reads (the per-write hooks read ×4,
-    the schema getters) to the low-level composition path (`StoreCore.getDynamicField`/
-    `getStaticField` + `_tableId`/`_fieldLayout`/`_encodeKey` constants) to recover the
-    ~800/write — the highest-frequency hit. Keep **cold** registration on the readable
-    handle API (deploy-time only). The data path needs nothing.
+- **StoreCore on handles vs low-level primitives.** Measured + resolved via clean
+  same-compiler store gas diffs (StoreCore-on-v2 @baseline vs v3).
+  - _Straight handle-API conversion_ cost **~800 gas per handle touched**, all in
+    metadata access (data path unchanged): per-write hooks read +~800, warm
+    `getKeySchema` +1854 / `getValueSchema` +977, table registration +~6150 (cold),
+    `registerStoreHook` +2222.
+  - _Resolution applied:_ StoreCore's **hot** metadata reads (per-write hooks read ×4,
+    schema getters, `exists` checks) now use the low-level composition path
+    (`getDynamicField`/`getStaticField` + the generated `_tableId`/`_fieldLayout`/
+    `_encodeKey` constants), via the private `_loadStoreHooks`/`_resourceExists` helpers.
+    **Cold** registration writes stay on the readable handle API (deploy-time only).
+  - _Result:_ every record set/delete now **+22 gas (~0.02%, gas-neutral)**; schema
+    getters **−15/−20 (cheaper than v2)**; residual overhead only on cold paths —
+    registration +2877/table, `registerStoreHook` +735. The data path is untouched.
+  - Optional further trim (low value): `registerStoreHook`'s `StoreHooks.push` and the
+    `registerInternalTables`/`registerTable` `Tables.save` are still handle-based; convert
+    to low-level only if deploy gas matters.
