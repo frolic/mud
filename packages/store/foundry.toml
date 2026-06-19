@@ -1,9 +1,10 @@
 [profile.default]
-solc = "0.8.24"
+solc = "0.8.31"
 ffi = true
 fuzz_runs = 256
 optimizer = true
 optimizer_runs = 3000
+via_ir = true
 verbosity = 2
 allow_paths= ["../../node_modules"]
 src = "src"
