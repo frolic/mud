@@ -8,59 +8,53 @@ import { FieldLayout } from "../src/FieldLayout.sol";
 import { Schema, SchemaLib, SchemaType } from "../src/Schema.sol";
 
 import { StoreMock } from "./StoreMock.sol";
-import { KeyEncoding } from "./codegen/index.sol";
-import { ExampleEnum } from "./codegen/common.sol";
+import { KeyEncoding, KeyEncodingRecordMethods } from "./codegen/tables/KeyEncoding.sol";
+import { ExampleEnum } from "./codegen/tables/ExampleEnum.sol";
 
 contract KeyEncodingTest is Test, GasReporter, StoreMock {
   function testRegisterAndGetFieldLayout() public {
     startGasReport("register KeyEncoding table");
-    KeyEncoding.register();
+    KeyEncodingRecordMethods.register();
     endGasReport();
 
-    FieldLayout registeredFieldLayout = StoreCore.getFieldLayout(KeyEncoding._tableId);
-    FieldLayout declaredFieldLayout = KeyEncoding._fieldLayout;
+    FieldLayout registeredFieldLayout = StoreCore.getFieldLayout(KeyEncodingRecordMethods._tableId);
+    FieldLayout declaredFieldLayout = KeyEncodingRecordMethods._fieldLayout;
 
     assertEq(keccak256(abi.encode(registeredFieldLayout)), keccak256(abi.encode(declaredFieldLayout)));
   }
 
   function testRegisterAndGetSchema() public {
-    KeyEncoding.register();
+    KeyEncodingRecordMethods.register();
 
-    Schema registeredSchema = StoreCore.getValueSchema(KeyEncoding._tableId);
-    Schema declaredSchema = KeyEncoding._valueSchema;
+    Schema registeredSchema = StoreCore.getValueSchema(KeyEncodingRecordMethods._tableId);
+    Schema declaredSchema = KeyEncodingRecordMethods._valueSchema;
 
     assertEq(keccak256(abi.encode(registeredSchema)), keccak256(abi.encode(declaredSchema)));
   }
 
   function testSetAndGet() public {
-    KeyEncoding.register();
+    KeyEncodingRecordMethods.register();
 
-    KeyEncoding.set(
-      42,
-      -42,
-      bytes16(hex"1234"),
-      0xFFfFfFffFFfffFFfFFfFFFFFffFFFffffFfFFFfF,
-      true,
-      ExampleEnum.Third,
-      true
-    );
+    KeyEncoding(42, -42, bytes16(hex"1234"), 0xFFfFfFffFFfffFFfFFfFFFFFffFFFffffFfFFFfF, true, ExampleEnum.Third)
+      .value()
+      .save(true);
 
-    bool value = KeyEncoding.get(
+    bool value = KeyEncoding(
       42,
       -42,
       bytes16(hex"1234"),
       0xFFfFfFffFFfffFFfFFfFFFFFffFFFffffFfFFFfF,
       true,
       ExampleEnum.Third
-    );
+    ).value().load();
 
     assertEq(value, true);
   }
 
   function testKeyEncoding() public {
-    KeyEncoding.register();
+    KeyEncodingRecordMethods.register();
 
-    bytes32[] memory keyTuple = KeyEncoding.encodeKeyTuple(
+    bytes32[] memory keyTuple = KeyEncodingRecordMethods._encodeKey(
       42,
       -42,
       bytes16(hex"1234"),
@@ -97,13 +91,13 @@ contract KeyEncodingTest is Test, GasReporter, StoreMock {
     _keySchema[4] = SchemaType.BOOL;
     _keySchema[5] = SchemaType.UINT8;
 
-    assertEq(Schema.unwrap(SchemaLib.encode(_keySchema)), Schema.unwrap(KeyEncoding._keySchema));
+    assertEq(Schema.unwrap(SchemaLib.encode(_keySchema)), Schema.unwrap(KeyEncodingRecordMethods._keySchema));
   }
 
   function testValueSchemaEncoding() public {
     SchemaType[] memory _valueSchema = new SchemaType[](1);
     _valueSchema[0] = SchemaType.BOOL;
 
-    assertEq(Schema.unwrap(SchemaLib.encode(_valueSchema)), Schema.unwrap(KeyEncoding._valueSchema));
+    assertEq(Schema.unwrap(SchemaLib.encode(_valueSchema)), Schema.unwrap(KeyEncodingRecordMethods._valueSchema));
   }
 }

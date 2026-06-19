@@ -17,14 +17,14 @@ contract StoreHooksColdLoadTest is Test, GasReporter, StoreMock {
     hooks = new bytes21[](1);
     hooks[0] = bytes21("some data");
 
-    StoreHooks.set(key, hooks);
+    StoreHooks(key).hooks().save(hooks);
   }
 
   function testGet() public {
     ResourceId key = ResourceId.wrap(keccak256("somekey"));
 
     startGasReport("StoreHooks: get field (cold)");
-    bytes21[] memory returnedAddresses = StoreHooks.get(key);
+    bytes21[] memory returnedAddresses = StoreHooks(key).hooks().load();
     endGasReport();
 
     assertEq(returnedAddresses.length, hooks.length);
@@ -35,7 +35,7 @@ contract StoreHooksColdLoadTest is Test, GasReporter, StoreMock {
     ResourceId key = ResourceId.wrap(keccak256("somekey"));
 
     startGasReport("StoreHooks: get length (cold)");
-    uint256 length = StoreHooks.length(key);
+    uint256 length = StoreHooks(key).hooks().length();
     endGasReport();
 
     assertEq(length, hooks.length);
@@ -45,7 +45,7 @@ contract StoreHooksColdLoadTest is Test, GasReporter, StoreMock {
     ResourceId key = ResourceId.wrap(keccak256("somekey"));
 
     startGasReport("StoreHooks: get 1 element (cold)");
-    bytes21 returnedAddress = StoreHooks.getItem(key, 0);
+    bytes21 returnedAddress = StoreHooks(key).hooks().load(0);
     endGasReport();
 
     assertEq(returnedAddress, hooks[0]);
@@ -55,10 +55,10 @@ contract StoreHooksColdLoadTest is Test, GasReporter, StoreMock {
     ResourceId key = ResourceId.wrap(keccak256("somekey"));
 
     startGasReport("StoreHooks: pop 1 element (cold)");
-    StoreHooks.pop(key);
+    StoreHooks(key).hooks().pop();
     endGasReport();
 
-    uint256 length = StoreHooks.length(key);
+    uint256 length = StoreHooks(key).hooks().length();
 
     assertEq(length, hooks.length - 1);
   }
@@ -68,10 +68,10 @@ contract StoreHooksColdLoadTest is Test, GasReporter, StoreMock {
 
     bytes21 newAddress = bytes21(bytes20(keccak256("alice")));
     startGasReport("StoreHooks: update 1 element (cold)");
-    StoreHooks.update(key, 0, newAddress);
+    StoreHooks(key).hooks().save(0, newAddress);
     endGasReport();
 
-    bytes21[] memory returnedAddresses = StoreHooks.get(key);
+    bytes21[] memory returnedAddresses = StoreHooks(key).hooks().load();
     assertEq(returnedAddresses.length, 1);
     assertEq(returnedAddresses[0], newAddress);
   }
@@ -80,10 +80,10 @@ contract StoreHooksColdLoadTest is Test, GasReporter, StoreMock {
     ResourceId key = ResourceId.wrap(keccak256("somekey"));
 
     startGasReport("StoreHooks: delete record (cold)");
-    StoreHooks.deleteRecord(key);
+    StoreHooks(key).destroy();
     endGasReport();
 
-    bytes21[] memory returnedAddresses = StoreHooks.get(key);
+    bytes21[] memory returnedAddresses = StoreHooks(key).hooks().load();
     assertEq(returnedAddresses.length, 0);
   }
 }

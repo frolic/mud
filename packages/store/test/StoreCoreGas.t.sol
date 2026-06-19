@@ -106,11 +106,11 @@ contract StoreCoreGasTest is Test, GasReporter, StoreMock {
     StoreCore.registerTable(tableId, fieldLayout, defaultKeySchema, valueSchema, new string[](1), new string[](4));
 
     startGasReport("Check for existence of table (existent)");
-    ResourceIds._getExists(tableId);
+    ResourceIds(tableId).own().exists().load();
     endGasReport();
 
     startGasReport("check for existence of table (non-existent)");
-    ResourceIds._getExists(tableId2);
+    ResourceIds(tableId2).own().exists().load();
     endGasReport();
   }
 

@@ -16,62 +16,62 @@ contract StoreHooksTest is Test, GasReporter, StoreMock {
     hooks[0] = bytes21("some data");
 
     startGasReport("StoreHooks: set field (cold)");
-    StoreHooks.set(key, hooks);
+    StoreHooks(key).hooks().save(hooks);
     endGasReport();
 
     startGasReport("StoreHooks: get field (warm)");
-    bytes21[] memory returnedHooks = StoreHooks.get(key);
+    bytes21[] memory returnedHooks = StoreHooks(key).hooks().load();
     endGasReport();
 
     assertEq(returnedHooks.length, hooks.length);
     assertEq(returnedHooks[0], hooks[0]);
 
     startGasReport("StoreHooks: push 1 element (cold)");
-    StoreHooks.push(key, hooks[0]);
+    StoreHooks(key).hooks().push(hooks[0]);
     endGasReport();
 
-    returnedHooks = StoreHooks.get(key);
+    returnedHooks = StoreHooks(key).hooks().load();
 
     assertEq(returnedHooks.length, 2);
     assertEq(returnedHooks[1], hooks[0]);
 
     startGasReport("StoreHooks: pop 1 element (warm)");
-    StoreHooks.pop(key);
+    StoreHooks(key).hooks().pop();
     endGasReport();
 
-    returnedHooks = StoreHooks.get(key);
+    returnedHooks = StoreHooks(key).hooks().load();
 
     assertEq(returnedHooks.length, 1);
     assertEq(returnedHooks[0], hooks[0]);
 
     startGasReport("StoreHooks: push 1 element (warm)");
-    StoreHooks.push(key, hooks[0]);
+    StoreHooks(key).hooks().push(hooks[0]);
     endGasReport();
 
-    returnedHooks = StoreHooks.get(key);
+    returnedHooks = StoreHooks(key).hooks().load();
 
     assertEq(returnedHooks.length, 2);
     assertEq(returnedHooks[1], hooks[0]);
 
     bytes21 newHook = bytes21(keccak256("alice"));
     startGasReport("StoreHooks: update 1 element (warm)");
-    StoreHooks.update(key, 1, newHook);
+    StoreHooks(key).hooks().save(1, newHook);
     endGasReport();
 
-    returnedHooks = StoreHooks.get(key);
+    returnedHooks = StoreHooks(key).hooks().load();
     assertEq(returnedHooks.length, 2);
     assertEq(returnedHooks[0], hooks[0]);
     assertEq(returnedHooks[1], newHook);
 
     startGasReport("StoreHooks: delete record (warm)");
-    StoreHooks.deleteRecord(key);
+    StoreHooks(key).destroy();
     endGasReport();
 
-    returnedHooks = StoreHooks.get(key);
+    returnedHooks = StoreHooks(key).hooks().load();
     assertEq(returnedHooks.length, 0);
 
     startGasReport("StoreHooks: set field (warm)");
-    StoreHooks.set(key, hooks);
+    StoreHooks(key).hooks().save(hooks);
     endGasReport();
   }
 
@@ -81,7 +81,7 @@ contract StoreHooksTest is Test, GasReporter, StoreMock {
     hooks[0] = bytes21("some data");
 
     startGasReport("StoreHooks: set field with one elements (cold)");
-    StoreHooks.set(key1, hooks);
+    StoreHooks(key1).hooks().save(hooks);
     endGasReport();
   }
 
@@ -92,7 +92,7 @@ contract StoreHooksTest is Test, GasReporter, StoreMock {
     hooks[1] = bytes21("some other data");
 
     startGasReport("StoreHooks: set field with two elements (cold)");
-    StoreHooks.set(key2, hooks);
+    StoreHooks(key2).hooks().save(hooks);
     endGasReport();
   }
 
@@ -104,7 +104,7 @@ contract StoreHooksTest is Test, GasReporter, StoreMock {
     hooks[2] = bytes21("some other other data");
 
     startGasReport("StoreHooks: set field with three elements (cold)");
-    StoreHooks.set(key3, hooks);
+    StoreHooks(key3).hooks().save(hooks);
     endGasReport();
   }
 }

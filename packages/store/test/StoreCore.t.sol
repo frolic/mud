@@ -15,7 +15,8 @@ import { IStoreErrors } from "../src/IStoreErrors.sol";
 import { IStore } from "../src/IStore.sol";
 import { StoreSwitch } from "../src/StoreSwitch.sol";
 import { IStoreHook } from "../src/IStoreHook.sol";
-import { Tables, ResourceIds } from "../src/codegen/index.sol";
+import { Tables, TablesData, TablesRecordMethods } from "../src/codegen/tables/Tables.sol";
+import { ResourceIds } from "../src/codegen/tables/ResourceIds.sol";
 import { ResourceId, ResourceIdLib } from "../src/ResourceId.sol";
 import { RESOURCE_TABLE, RESOURCE_OFFCHAIN_TABLE } from "../src/storeResourceTypes.sol";
 import { FieldLayoutEncodeHelper } from "./FieldLayoutEncodeHelper.sol";
@@ -81,28 +82,33 @@ contract StoreCoreTest is Test, StoreMock {
     // Expect a Store_SetRecord event to be emitted
     bytes32[] memory keyTuple = new bytes32[](1);
     keyTuple[0] = ResourceId.unwrap(tableId);
-    vm.expectEmit(true, true, true, true);
-    emit Store_SetRecord(
-      Tables._tableId,
-      keyTuple,
-      Tables.encodeStatic(fieldLayout, keySchema, valueSchema),
-      Tables.encodeLengths(abi.encode(keyNames), abi.encode(fieldNames)),
-      Tables.encodeDynamic(abi.encode(keyNames), abi.encode(fieldNames))
-    );
+    {
+      (bytes memory staticData, EncodedLengths encodedLengths, bytes memory dynamicData) = TablesRecordMethods._encode(
+        TablesData({
+          fieldLayout: fieldLayout,
+          keySchema: keySchema,
+          valueSchema: valueSchema,
+          abiEncodedKeyNames: abi.encode(keyNames),
+          abiEncodedFieldNames: abi.encode(fieldNames)
+        })
+      );
+      vm.expectEmit(true, true, true, true);
+      emit Store_SetRecord(TablesRecordMethods._tableId, keyTuple, staticData, encodedLengths, dynamicData);
+    }
     this.registerTable(tableId, fieldLayout, keySchema, valueSchema, keyNames, fieldNames);
 
     assertEq(this.getFieldLayout(tableId).unwrap(), fieldLayout.unwrap());
     assertEq(this.getValueSchema(tableId).unwrap(), valueSchema.unwrap());
     assertEq(this.getKeySchema(tableId).unwrap(), keySchema.unwrap());
 
-    bytes memory loadedKeyNames = Tables.getAbiEncodedKeyNames(tableId);
+    bytes memory loadedKeyNames = Tables(tableId).abiEncodedKeyNames().load();
     assertEq(loadedKeyNames, abi.encode(keyNames));
 
-    bytes memory loadedFieldNames = Tables.getAbiEncodedFieldNames(tableId);
+    bytes memory loadedFieldNames = Tables(tableId).abiEncodedFieldNames().load();
     assertEq(loadedFieldNames, abi.encode(fieldNames));
 
     // Expect the table ID to be registered
-    assertTrue(ResourceIds._getExists(tableId));
+    assertTrue(ResourceIds(tableId).own().exists().load());
   }
 
   function testRevertTableExists() public {
@@ -183,8 +189,8 @@ contract StoreCoreTest is Test, StoreMock {
     );
     this.registerTable(tableId, fieldLayout, defaultKeySchema, valueSchema, keyNames, fieldNames);
 
-    assertTrue(ResourceIds._getExists(tableId));
-    assertFalse(ResourceIds._getExists(tableId2));
+    assertTrue(ResourceIds(tableId).own().exists().load());
+    assertFalse(ResourceIds(tableId2).own().exists().load());
 
     assertEq(FieldLayout.unwrap(this.getFieldLayout(tableId)), FieldLayout.unwrap(fieldLayout));
     assertEq(Schema.unwrap(this.getValueSchema(tableId)), Schema.unwrap(valueSchema));

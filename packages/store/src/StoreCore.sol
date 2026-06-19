@@ -9,7 +9,9 @@ import { FieldLayout, FieldLayoutLib } from "./FieldLayout.sol";
 import { Schema, SchemaLib } from "./Schema.sol";
 import { EncodedLengths } from "./EncodedLengths.sol";
 import { Slice, SliceLib } from "./Slice.sol";
-import { Tables, ResourceIds, StoreHooks } from "./codegen/index.sol";
+import { Tables, TablesData, TablesRecordMethods } from "./codegen/tables/Tables.sol";
+import { ResourceIds, ResourceIdsRecordMethods } from "./codegen/tables/ResourceIds.sol";
+import { StoreHooks, StoreHooksRecordMethods } from "./codegen/tables/StoreHooks.sol";
 import { IStoreErrors } from "./IStoreErrors.sol";
 import { IStoreHook } from "./IStoreHook.sol";
 import { StoreSwitch } from "./StoreSwitch.sol";
@@ -49,36 +51,74 @@ library StoreCore {
     // Instead, we'll register them manually, writing everything to the `Tables` table first,
     // then the `ResourceIds` table. The logic here ought to be kept in sync with the internals
     // of the `registerTable` function below.
-    if (ResourceIds._getExists(Tables._tableId)) {
-      revert IStoreErrors.Store_TableAlreadyExists(Tables._tableId, string(abi.encodePacked(Tables._tableId)));
-    }
-    if (ResourceIds._getExists(ResourceIds._tableId)) {
+    if (_resourceExists(TablesRecordMethods._tableId)) {
       revert IStoreErrors.Store_TableAlreadyExists(
-        ResourceIds._tableId,
-        string(abi.encodePacked(ResourceIds._tableId))
+        TablesRecordMethods._tableId,
+        string(abi.encodePacked(TablesRecordMethods._tableId))
       );
     }
-    Tables._set(
-      Tables._tableId,
-      Tables._fieldLayout,
-      Tables._keySchema,
-      Tables._valueSchema,
-      abi.encode(Tables.getKeyNames()),
-      abi.encode(Tables.getFieldNames())
+    if (_resourceExists(ResourceIdsRecordMethods._tableId)) {
+      revert IStoreErrors.Store_TableAlreadyExists(
+        ResourceIdsRecordMethods._tableId,
+        string(abi.encodePacked(ResourceIdsRecordMethods._tableId))
+      );
+    }
+    Tables(TablesRecordMethods._tableId).own().save(
+      TablesData({
+        fieldLayout: TablesRecordMethods._fieldLayout,
+        keySchema: TablesRecordMethods._keySchema,
+        valueSchema: TablesRecordMethods._valueSchema,
+        abiEncodedKeyNames: abi.encode(TablesRecordMethods.getKeyNames()),
+        abiEncodedFieldNames: abi.encode(TablesRecordMethods.getFieldNames())
+      })
     );
-    Tables._set(
-      ResourceIds._tableId,
-      ResourceIds._fieldLayout,
-      ResourceIds._keySchema,
-      ResourceIds._valueSchema,
-      abi.encode(ResourceIds.getKeyNames()),
-      abi.encode(ResourceIds.getFieldNames())
+    Tables(ResourceIdsRecordMethods._tableId).own().save(
+      TablesData({
+        fieldLayout: ResourceIdsRecordMethods._fieldLayout,
+        keySchema: ResourceIdsRecordMethods._keySchema,
+        valueSchema: ResourceIdsRecordMethods._valueSchema,
+        abiEncodedKeyNames: abi.encode(ResourceIdsRecordMethods.getKeyNames()),
+        abiEncodedFieldNames: abi.encode(ResourceIdsRecordMethods.getFieldNames())
+      })
     );
-    ResourceIds._setExists(Tables._tableId, true);
-    ResourceIds._setExists(ResourceIds._tableId, true);
+    ResourceIds(TablesRecordMethods._tableId).own().exists().save(true);
+    ResourceIds(ResourceIdsRecordMethods._tableId).own().exists().save(true);
 
     // Now we can register the rest of the core tables as regular tables.
-    StoreHooks.register();
+    StoreHooksRecordMethods.register();
+  }
+
+  /************************************************************************
+   *
+   *    INTERNAL METADATA READS (hot path)
+   *
+   ************************************************************************/
+
+  // The v3 table handles are used for the cold registration paths above, but the reads
+  // below run on every record write (hooks) or are queried frequently (schemas), so they
+  // skip the handle allocation and call StoreCore directly with the generated `_*`
+  // constants/codecs — exactly what a handle compiles to, minus the memory struct.
+
+  /// @dev Read a table's store hooks. Hit on every set/delete record.
+  ///      `internal` (not `private`) so {StoreCoreInternal} splice paths can share it.
+  function _loadStoreHooks(ResourceId tableId) internal view returns (bytes21[] memory) {
+    bytes memory blob = getDynamicField(
+      StoreHooksRecordMethods._tableId,
+      StoreHooksRecordMethods._encodeKey(tableId),
+      0
+    );
+    return SliceLib.getSubslice(blob, 0, blob.length).decodeArray_bytes21();
+  }
+
+  /// @dev Whether a resource id is registered (the `ResourceIds.exists` flag).
+  function _resourceExists(ResourceId resourceId) private view returns (bool) {
+    bytes32 blob = getStaticField(
+      ResourceIdsRecordMethods._tableId,
+      ResourceIdsRecordMethods._encodeKey(resourceId),
+      0,
+      ResourceIdsRecordMethods._fieldLayout
+    );
+    return uint8(bytes1(blob)) != 0;
   }
 
   /************************************************************************
@@ -96,13 +136,16 @@ library StoreCore {
     // Explicit check for the Tables table to solve the bootstraping issue
     // of the Tables table not having a field layout before it is registered
     // since the field layout is stored in the Tables table.
-    if (ResourceId.unwrap(tableId) == ResourceId.unwrap(Tables._tableId)) {
-      return Tables._fieldLayout;
+    if (ResourceId.unwrap(tableId) == ResourceId.unwrap(TablesRecordMethods._tableId)) {
+      return TablesRecordMethods._fieldLayout;
     }
     return
       FieldLayout.wrap(
         Storage.loadField({
-          storagePointer: StoreCoreInternal._getStaticDataLocation(Tables._tableId, ResourceId.unwrap(tableId)),
+          storagePointer: StoreCoreInternal._getStaticDataLocation(
+            TablesRecordMethods._tableId,
+            ResourceId.unwrap(tableId)
+          ),
           length: 32,
           offset: 0
         })
@@ -116,9 +159,16 @@ library StoreCore {
    * @return keySchema The key schema for the given table ID.
    */
   function getKeySchema(ResourceId tableId) internal view returns (Schema keySchema) {
-    keySchema = Tables._getKeySchema(tableId);
+    keySchema = Schema.wrap(
+      getStaticField(
+        TablesRecordMethods._tableId,
+        TablesRecordMethods._encodeKey(tableId),
+        1,
+        TablesRecordMethods._fieldLayout
+      )
+    );
     // key schemas can be empty for singleton tables, so we can't depend on key schema for table check
-    if (!ResourceIds._getExists(tableId)) {
+    if (!_resourceExists(tableId)) {
       revert IStoreErrors.Store_TableNotFound(tableId, string(abi.encodePacked(tableId)));
     }
   }
@@ -130,7 +180,14 @@ library StoreCore {
    * @return valueSchema The value schema for the given table ID.
    */
   function getValueSchema(ResourceId tableId) internal view returns (Schema valueSchema) {
-    valueSchema = Tables._getValueSchema(tableId);
+    valueSchema = Schema.wrap(
+      getStaticField(
+        TablesRecordMethods._tableId,
+        TablesRecordMethods._encodeKey(tableId),
+        2,
+        TablesRecordMethods._fieldLayout
+      )
+    );
     if (valueSchema.isEmpty()) {
       revert IStoreErrors.Store_TableNotFound(tableId, string(abi.encodePacked(tableId)));
     }
@@ -212,15 +269,23 @@ library StoreCore {
     // Verify that there is no table or offchain table with the same name
     ResourceId onchainTableId = ResourceIdLib.encode(RESOURCE_TABLE, tableId.getResourceName());
     ResourceId offchainTableId = ResourceIdLib.encode(RESOURCE_OFFCHAIN_TABLE, tableId.getResourceName());
-    if (ResourceIds._getExists(onchainTableId) || ResourceIds._getExists(offchainTableId)) {
+    if (_resourceExists(onchainTableId) || _resourceExists(offchainTableId)) {
       revert IStoreErrors.Store_TableAlreadyExists(tableId, string(abi.encodePacked(tableId)));
     }
 
     // Register the table metadata
-    Tables._set(tableId, fieldLayout, keySchema, valueSchema, abi.encode(keyNames), abi.encode(fieldNames));
+    Tables(tableId).own().save(
+      TablesData({
+        fieldLayout: fieldLayout,
+        keySchema: keySchema,
+        valueSchema: valueSchema,
+        abiEncodedKeyNames: abi.encode(keyNames),
+        abiEncodedFieldNames: abi.encode(fieldNames)
+      })
+    );
 
     // Register the table ID
-    ResourceIds._setExists(tableId, true);
+    ResourceIds(tableId).own().exists().save(true);
   }
 
   /************************************************************************
@@ -244,11 +309,11 @@ library StoreCore {
     }
 
     // Require the table to exist
-    if (!ResourceIds._getExists(tableId)) {
+    if (!_resourceExists(tableId)) {
       revert IStoreErrors.Store_TableNotFound(tableId, string(abi.encodePacked(tableId)));
     }
 
-    StoreHooks._push(tableId, Hook.unwrap(HookLib.encode(address(hookAddress), enabledHooksBitmap)));
+    StoreHooks(tableId).own().hooks().push(Hook.unwrap(HookLib.encode(address(hookAddress), enabledHooksBitmap)));
   }
 
   /**
@@ -257,7 +322,7 @@ library StoreCore {
    * @param hookAddress The address of the hook to unregister.
    */
   function unregisterStoreHook(ResourceId tableId, IStoreHook hookAddress) internal {
-    HookLib.filterListByAddress(StoreHooks._tableId, tableId, address(hookAddress));
+    HookLib.filterListByAddress(StoreHooksRecordMethods._tableId, tableId, address(hookAddress));
   }
 
   /************************************************************************
@@ -316,7 +381,7 @@ library StoreCore {
     }
 
     // Call onBeforeSetRecord hooks (before actually modifying the state, so observers have access to the previous state if needed)
-    bytes21[] memory hooks = StoreHooks._get(tableId);
+    bytes21[] memory hooks = _loadStoreHooks(tableId);
     for (uint256 i; i < hooks.length; i++) {
       Hook hook = Hook.wrap(hooks[i]);
       if (hook.isEnabled(BEFORE_SET_RECORD)) {
@@ -409,7 +474,7 @@ library StoreCore {
     uint256 location = StoreCoreInternal._getStaticDataLocation(tableId, keyTuple);
 
     // Call onBeforeSpliceStaticData hooks (before actually modifying the state, so observers have access to the previous state if needed)
-    bytes21[] memory hooks = StoreHooks._get(tableId);
+    bytes21[] memory hooks = _loadStoreHooks(tableId);
     for (uint256 i; i < hooks.length; i++) {
       Hook hook = Hook.wrap(hooks[i]);
       if (hook.isEnabled(BEFORE_SPLICE_STATIC_DATA)) {
@@ -605,7 +670,7 @@ library StoreCore {
     }
 
     // Call onBeforeDeleteRecord hooks (before actually modifying the state, so observers have access to the previous state if needed)
-    bytes21[] memory hooks = StoreHooks._get(tableId);
+    bytes21[] memory hooks = _loadStoreHooks(tableId);
     for (uint256 i; i < hooks.length; i++) {
       Hook hook = Hook.wrap(hooks[i]);
       if (hook.isEnabled(BEFORE_DELETE_RECORD)) {
@@ -1011,7 +1076,7 @@ library StoreCoreInternal {
     EncodedLengths updatedEncodedLengths = previousEncodedLengths.setAtIndex(dynamicFieldIndex, updatedFieldLength);
 
     // Call onBeforeSpliceDynamicData hooks (before actually modifying the state, so observers have access to the previous state if needed)
-    bytes21[] memory hooks = StoreHooks._get(tableId);
+    bytes21[] memory hooks = StoreCore._loadStoreHooks(tableId);
     for (uint256 i; i < hooks.length; i++) {
       Hook hook = Hook.wrap(hooks[i]);
       if (hook.isEnabled(BEFORE_SPLICE_DYNAMIC_DATA)) {

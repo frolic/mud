@@ -39,7 +39,9 @@ library HookLib {
     ResourceId resourceWithHooks,
     address hookAddressToRemove
   ) internal {
-    bytes21[] memory currentHooks = Hooks._get(hookTableId, resourceWithHooks);
+    // `.at(hookTableId)` retargets the generic Hooks accessor at the caller's hook table —
+    // this is what replaces v2's `tableIdArgument` codegen variant.
+    bytes21[] memory currentHooks = Hooks(resourceWithHooks).at(hookTableId).own().hooks().load();
 
     // Initialize the new hooks array with the same length because we don't know if the hook is registered yet
     bytes21[] memory newHooks = new bytes21[](currentHooks.length);
@@ -62,7 +64,7 @@ library HookLib {
     }
 
     // Set the new hooks table
-    Hooks._set(hookTableId, resourceWithHooks, newHooks);
+    Hooks(resourceWithHooks).at(hookTableId).own().hooks().save(newHooks);
   }
 }
 
