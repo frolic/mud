@@ -47,6 +47,15 @@ Things intentionally parked while focusing on migrating the store package to v3.
 
 ## Naming / structure
 
+- **Promote the v3 TS codegen to first-class `ts/codegen/` + delete the v2 tablegen.** The v3
+  Solidity is now first-class (`src/Record.sol`, `src/fields/`, `src/codegen/tables/` — no more
+  `v3/` subdirs), but the v3 codegen _logic_ still lives in `ts/codegen/v3/` and the v2 tablegen
+  (`ts/codegen/*.ts`) is still present. The v2 tablegen is the live engine behind
+  `@latticexyz/store/codegen` → consumed by `cli` (`mud tablegen` for every project, `cli/src/build.ts`)
+  and `world`'s build/codegen. So promoting v3 over it must ship WITH the CLI/world migration
+  (repoint the `./codegen` export to v3, adopt the v3 `tablegen` signature in the CLI). Deferred to
+  that phase — not an unused remnant, it's the current production codegen. `ts/config/v2/` (the
+  config layer) stays regardless.
 - **Separate codec library vs `_` prefix** for the low-level surface (`_encodeKey`/
   `_decode`/…). `_` chosen for now; `MixedCodec.*` is the clean-name alternative.
 
