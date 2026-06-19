@@ -30,11 +30,17 @@ Things intentionally parked while focusing on migrating the store package to v3.
   register **+1.8k** over v2. The real cost is the **handle + `RecordMethods` load/save +
   `StoreAccess` dispatch** path (Record struct alloc, the store==0 branch, the generic
   (static,lengths,dynamic) bytes-triple round trip), not the codec. Next lever lives there.
-- **Record load/save path overhead (NEW — the real record cost).** ~+3.3k/read, +3.4k/write
-  vs v2, intrinsic to `Mixed(key).load()/.save()` going through the handle + generic
-  `RecordMethods`/`StoreAccess`. Options to explore: a low-level record path mirroring the
-  `_loadStoreHooks`/`_resourceExists` pattern (skip the handle for whole-record ops), or
-  tightening `StoreAccess`/`RecordMethods`. Measure against `gas-report.json` (v2 @53bb8b76).
+- **Record load/save path overhead — MOSTLY RESOLVED.** The apparent +3.3k/read, +3.4k/write
+  was dominated by the store's `getFieldLayout` lookup (a storage read, **cold** on first table
+  access in a tx), NOT the handle. Fixed by threading the table's compile-time-constant
+  `_fieldLayout` through generated `load`/`save`/`destroy` (new layout-passing `RecordMethods`/
+  `StoreAccess` overloads → `StoreCore`'s 3-arg/6-arg get/set/delete). Net −15,486 across the
+  suite; per app-table record op ~−2,540; residual over v2 is now just the intrinsic ~900/handle.
+  Caveats: (1) writes/deletes only skip the lookup on the **self-store** (`.own()`/StoreCore)
+  path — the external `IStore` write interface has no layout-passing overload (a kernel-shape
+  decision; revisit with the IStoreWrite shrink). (2) Passing the constant assumes `.at()` targets
+  a same-shape table (same contract as v2's `tableIdArgument` and field ops). The remaining
+  ~900/handle is intrinsic (lean-handle measured negative — do not chase).
 - **Group field libs into per-family files** (~12 files instead of 198). File-count only.
 - The handle overhead itself (~950) is intrinsic; lean handle / layer flattening were
   measured negative — do not revisit without a new idea.
