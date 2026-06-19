@@ -42,6 +42,17 @@ library StoreAccess {
     return IStore(self.store).getRecord(self.tableId, self.keyTuple);
   }
 
+  /// @dev Layout-passing variant: skips the store's `getFieldLayout` lookup (a storage read,
+  ///      cold on first table access) by supplying the table's compile-time-constant layout.
+  function getRecord(
+    Record memory self,
+    FieldLayout fieldLayout
+  ) internal view returns (bytes memory, EncodedLengths, bytes memory) {
+    if (self.store == address(0)) return StoreSwitch.getRecord(self.tableId, self.keyTuple, fieldLayout);
+    if (self.store == address(this)) return StoreCore.getRecord(self.tableId, self.keyTuple, fieldLayout);
+    return IStore(self.store).getRecord(self.tableId, self.keyTuple, fieldLayout);
+  }
+
   function setRecord(
     Record memory self,
     bytes memory staticData,
@@ -57,9 +68,35 @@ library StoreAccess {
     }
   }
 
+  /// @dev Layout-passing variant. Only the self-store (StoreCore) path skips the layout lookup —
+  ///      the external `IStore`/`StoreSwitch` write interface has no layout-passing overload, so
+  ///      those branches fall back to the lookup. (Reads expose it on all three; writes don't.)
+  function setRecord(
+    Record memory self,
+    bytes memory staticData,
+    EncodedLengths encodedLengths,
+    bytes memory dynamicData,
+    FieldLayout fieldLayout
+  ) internal {
+    if (self.store == address(0)) {
+      StoreSwitch.setRecord(self.tableId, self.keyTuple, staticData, encodedLengths, dynamicData);
+    } else if (self.store == address(this)) {
+      StoreCore.setRecord(self.tableId, self.keyTuple, staticData, encodedLengths, dynamicData, fieldLayout);
+    } else {
+      IStore(self.store).setRecord(self.tableId, self.keyTuple, staticData, encodedLengths, dynamicData);
+    }
+  }
+
   function deleteRecord(Record memory self) internal {
     if (self.store == address(0)) StoreSwitch.deleteRecord(self.tableId, self.keyTuple);
     else if (self.store == address(this)) StoreCore.deleteRecord(self.tableId, self.keyTuple);
+    else IStore(self.store).deleteRecord(self.tableId, self.keyTuple);
+  }
+
+  /// @dev Layout-passing variant (see {setRecord}); self-store path only.
+  function deleteRecord(Record memory self, FieldLayout fieldLayout) internal {
+    if (self.store == address(0)) StoreSwitch.deleteRecord(self.tableId, self.keyTuple);
+    else if (self.store == address(this)) StoreCore.deleteRecord(self.tableId, self.keyTuple, fieldLayout);
     else IStore(self.store).deleteRecord(self.tableId, self.keyTuple);
   }
 
@@ -173,6 +210,15 @@ library RecordMethods {
     return StoreAccess.getRecord(self);
   }
 
+  /// @dev Layout-passing variant: generated `load` calls this with the table's constant layout,
+  ///      skipping the store's `getFieldLayout` lookup. Plain `load` is for generic/infra callers.
+  function load(
+    Record memory self,
+    FieldLayout fieldLayout
+  ) internal view returns (bytes memory, EncodedLengths, bytes memory) {
+    return StoreAccess.getRecord(self, fieldLayout);
+  }
+
   function save(
     Record memory self,
     bytes memory staticData,
@@ -182,7 +228,23 @@ library RecordMethods {
     StoreAccess.setRecord(self, staticData, encodedLengths, dynamicData);
   }
 
+  /// @dev Layout-passing variant (see {load}).
+  function save(
+    Record memory self,
+    bytes memory staticData,
+    EncodedLengths encodedLengths,
+    bytes memory dynamicData,
+    FieldLayout fieldLayout
+  ) internal {
+    StoreAccess.setRecord(self, staticData, encodedLengths, dynamicData, fieldLayout);
+  }
+
   function destroy(Record memory self) internal {
     StoreAccess.deleteRecord(self);
+  }
+
+  /// @dev Layout-passing variant (see {load}).
+  function destroy(Record memory self, FieldLayout fieldLayout) internal {
+    StoreAccess.deleteRecord(self, fieldLayout);
   }
 }

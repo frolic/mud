@@ -357,7 +357,7 @@
     "file": "test/KeyEncoding.t.sol:KeyEncodingTest",
     "test": "testRegisterAndGetFieldLayout",
     "name": "register KeyEncoding table",
-    "gasUsed": 722609
+    "gasUsed": 722513
   },
   {
     "file": "test/Mixed.t.sol:MixedTest",
@@ -369,49 +369,49 @@
     "file": "test/Mixed.t.sol:MixedTest",
     "test": "testDeleteExternalCold",
     "name": "delete record from Mixed (external, cold)",
-    "gasUsed": 23883
+    "gasUsed": 23899
   },
   {
     "file": "test/Mixed.t.sol:MixedTest",
     "test": "testDeleteInternalCold",
     "name": "delete record from Mixed (internal, cold)",
-    "gasUsed": 21826
+    "gasUsed": 19308
   },
   {
     "file": "test/Mixed.t.sol:MixedTest",
     "test": "testSetGetDeleteExternal",
     "name": "set record in Mixed (external, cold)",
-    "gasUsed": 108245
+    "gasUsed": 108255
   },
   {
     "file": "test/Mixed.t.sol:MixedTest",
     "test": "testSetGetDeleteExternal",
     "name": "get record from Mixed (external, warm)",
-    "gasUsed": 20021
+    "gasUsed": 17477
   },
   {
     "file": "test/Mixed.t.sol:MixedTest",
     "test": "testSetGetDeleteExternal",
     "name": "delete record from Mixed (external, warm)",
-    "gasUsed": 23900
+    "gasUsed": 23916
   },
   {
     "file": "test/Mixed.t.sol:MixedTest",
     "test": "testSetGetDeleteInternal",
     "name": "set record in Mixed (internal, cold)",
-    "gasUsed": 106162
+    "gasUsed": 103622
   },
   {
     "file": "test/Mixed.t.sol:MixedTest",
     "test": "testSetGetDeleteInternal",
     "name": "get record from Mixed (internal, warm)",
-    "gasUsed": 17923
+    "gasUsed": 15370
   },
   {
     "file": "test/Mixed.t.sol:MixedTest",
     "test": "testSetGetDeleteInternal",
     "name": "delete record from Mixed (internal, warm)",
-    "gasUsed": 21847
+    "gasUsed": 19326
   },
   {
     "file": "test/ResourceId.t.sol:ResourceIdTest",
@@ -771,7 +771,7 @@
     "file": "test/StoreCoreGas.t.sol:StoreCoreGasTest",
     "test": "testRegisterAndGetFieldLayout",
     "name": "StoreCore: register table",
-    "gasUsed": 652656
+    "gasUsed": 652560
   },
   {
     "file": "test/StoreCoreGas.t.sol:StoreCoreGasTest",
@@ -993,7 +993,7 @@
     "file": "test/StoreHooks.t.sol:StoreHooksTest",
     "test": "testTable",
     "name": "StoreHooks: delete record (warm)",
-    "gasUsed": 14749
+    "gasUsed": 14759
   },
   {
     "file": "test/StoreHooks.t.sol:StoreHooksTest",
@@ -1017,7 +1017,7 @@
     "file": "test/StoreHooksColdLoad.t.sol:StoreHooksColdLoadTest",
     "test": "testDelete",
     "name": "StoreHooks: delete record (cold)",
-    "gasUsed": 18793
+    "gasUsed": 18803
   },
   {
     "file": "test/StoreHooksColdLoad.t.sol:StoreHooksColdLoadTest",
@@ -1113,18 +1113,18 @@
     "file": "test/Vector2.t.sol:Vector2Test",
     "test": "testRegisterAndGetFieldLayout",
     "name": "register Vector2 field layout",
-    "gasUsed": 448682
+    "gasUsed": 448592
   },
   {
     "file": "test/Vector2.t.sol:Vector2Test",
     "test": "testSetAndGet",
     "name": "set Vector2 record",
-    "gasUsed": 33365
+    "gasUsed": 33321
   },
   {
     "file": "test/Vector2.t.sol:Vector2Test",
     "test": "testSetAndGet",
     "name": "get Vector2 record",
-    "gasUsed": 9324
+    "gasUsed": 6778
   }
 ]

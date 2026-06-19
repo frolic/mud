@@ -69,9 +69,11 @@ library MetadataBenchRecordMethods {
   }
 
   /// @notice Read the whole record and decode it into a memory struct.
+  /// @dev Passes the table's constant `_fieldLayout`, skipping the store's layout lookup.
   function load(MetadataBenchRecord memory self) internal view returns (MetadataBenchData memory) {
     (bytes memory staticData, EncodedLengths encodedLengths, bytes memory dynamicData) = RecordMethods.load(
-      self.record
+      self.record,
+      _fieldLayout
     );
     return _decode(staticData, encodedLengths, dynamicData);
   }
@@ -79,12 +81,12 @@ library MetadataBenchRecordMethods {
   /// @notice Encode and write the whole record.
   function save(MetadataBenchRecord memory self, MetadataBenchData memory data) internal {
     (bytes memory staticData, EncodedLengths encodedLengths, bytes memory dynamicData) = _encode(data);
-    RecordMethods.save(self.record, staticData, encodedLengths, dynamicData);
+    RecordMethods.save(self.record, staticData, encodedLengths, dynamicData, _fieldLayout);
   }
 
   /// @notice Delete the whole record.
   function destroy(MetadataBenchRecord memory self) internal {
-    RecordMethods.destroy(self.record);
+    RecordMethods.destroy(self.record, _fieldLayout);
   }
 
   /// @notice Handle for the `fieldLayout` field.
