@@ -9,8 +9,8 @@ import { FieldLayout } from "../../src/FieldLayout.sol";
 import { Schema } from "../../src/Schema.sol";
 import { StoreSwitch } from "../../src/StoreSwitch.sol";
 import { IStore } from "../../src/IStore.sol";
-import { Record, StoreAccess } from "../../src/v3/Record.sol";
-import { Bytes32Field } from "../../src/v3/fields/Bytes32Field.sol";
+import { Record, StoreAccess } from "../../src/Record.sol";
+import { Bytes32Field } from "../../src/fields/Bytes32Field.sol";
 
 import { MetadataBench, MetadataBenchData, MetadataBenchRecord, MetadataBenchRecordMethods } from "./codegen/MetadataBench.sol";
 

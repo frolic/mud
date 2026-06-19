@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.24;
 
-import { Hooks } from "./codegen/v3/Hooks.sol";
+import { Hooks } from "./codegen/tables/Hooks.sol";
 import { ResourceId } from "./ResourceId.sol";
 
 // 20 bytes address, 1 byte bitmap of enabled hooks

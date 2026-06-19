@@ -15,7 +15,7 @@ import { StoreMock } from "../test/StoreMock.sol";
 import { IStoreErrors } from "../src/IStoreErrors.sol";
 import { IStore } from "../src/IStore.sol";
 import { ResourceId, ResourceIdLib } from "../src/ResourceId.sol";
-import { ResourceIds } from "../src/codegen/v3/ResourceIds.sol";
+import { ResourceIds } from "../src/codegen/tables/ResourceIds.sol";
 import { RESOURCE_TABLE, RESOURCE_OFFCHAIN_TABLE } from "../src/storeResourceTypes.sol";
 import { FieldLayoutEncodeHelper } from "./FieldLayoutEncodeHelper.sol";
 import { SchemaEncodeHelper } from "./SchemaEncodeHelper.sol";

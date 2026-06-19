@@ -7,7 +7,7 @@ import { abiTypeInfo } from "./abiType";
 import { cast } from "./staticCast";
 
 /**
- * Generates the shared field libraries — one per ABI type — into `src/v3/fields/`.
+ * Generates the shared field libraries — one per ABI type — into `src/fields/`.
  * These are the "written once" codecs the design centralizes: every `uint32` field
  * of every table shares `Uint32FieldLib`. Hand-writing ~200 of them would be absurd,
  * so they're generated; the per-family cast logic lives in `cast()` below.
@@ -46,8 +46,8 @@ function staticField(abiType: string): string {
   return code`
     ${header()}
     import { Record, StoreAccess } from "../Record.sol";
-    import { FieldLayout } from "../../FieldLayout.sol";
-    import { Bytes } from "../../Bytes.sol";
+    import { FieldLayout } from "../FieldLayout.sol";
+    import { Bytes } from "../Bytes.sol";
 
     /// @notice A handle to one \`${abiType}\` field of a record.
     struct ${Field} {
@@ -87,9 +87,9 @@ function arrayField(elementType: string): string {
   return code`
     ${header()}
     import { Record, StoreAccess } from "../Record.sol";
-    import { EncodedLengths } from "../../EncodedLengths.sol";
-    import { SliceLib } from "../../Slice.sol";
-    import { EncodeArray } from "../../tightcoder/EncodeArray.sol";
+    import { EncodedLengths } from "../EncodedLengths.sol";
+    import { SliceLib } from "../Slice.sol";
+    import { EncodeArray } from "../tightcoder/EncodeArray.sol";
     import { DynamicRange } from "./_dynamic.sol";
 
     /// @notice A handle to one \`${abiType}\` field of a record.
@@ -175,8 +175,8 @@ function bytesField(abiType: "bytes" | "string"): string {
   return code`
     ${header()}
     import { Record, StoreAccess } from "../Record.sol";
-    import { EncodedLengths } from "../../EncodedLengths.sol";
-    import { SliceLib } from "../../Slice.sol";
+    import { EncodedLengths } from "../EncodedLengths.sol";
+    import { SliceLib } from "../Slice.sol";
     import { DynamicRange } from "./_dynamic.sol";
 
     /// @notice A handle to one \`${abiType}\` field of a record.
@@ -239,7 +239,7 @@ function range(from: number, to: number): number[] {
 // emit
 // ─────────────────────────────────────────────────────────────────────────────
 
-const outputDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../src/v3/fields");
+const outputDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../src/fields");
 
 const files: { name: string; source: string }[] = [
   ...staticValueTypes.map((abiType) => ({ name: handleName(abiType), source: staticField(abiType) })),
@@ -252,4 +252,4 @@ await fs.mkdir(outputDir, { recursive: true });
 for (const { name, source } of files) {
   await fs.writeFile(path.join(outputDir, `${name}.sol`), await formatSolidity(source));
 }
-console.log(`generated ${files.length} field libraries into src/v3/fields/`);
+console.log(`generated ${files.length} field libraries into src/fields/`);

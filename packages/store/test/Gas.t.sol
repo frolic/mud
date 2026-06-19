@@ -7,10 +7,10 @@ import { Bytes } from "../src/Bytes.sol";
 import { SliceLib } from "../src/Slice.sol";
 import { Storage } from "../src/Storage.sol";
 import { EncodedLengths, EncodedLengthsLib } from "../src/EncodedLengths.sol";
-import { Uint32FieldLib } from "../src/v3/fields/Uint32Field.sol";
-import { Uint128FieldLib } from "../src/v3/fields/Uint128Field.sol";
-import { Uint32ArrayFieldLib } from "../src/v3/fields/Uint32ArrayField.sol";
-import { StringFieldLib } from "../src/v3/fields/StringField.sol";
+import { Uint32FieldLib } from "../src/fields/Uint32Field.sol";
+import { Uint128FieldLib } from "../src/fields/Uint128Field.sol";
+import { Uint32ArrayFieldLib } from "../src/fields/Uint32ArrayField.sol";
+import { StringFieldLib } from "../src/fields/StringField.sol";
 
 import { MixedData, MixedRecordMethods } from "./codegen/tables/Mixed.sol";
 

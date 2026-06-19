@@ -79,7 +79,7 @@ function renderImports(table: TableCodegen): string {
   const udvtImports = unique(userTypes.map((ut) => `import { ${ut!.name} } from "${ut!.filePath}";`));
 
   return code`
-    ${runtime("Record, RecordMethods", "v3/Record.sol")}
+    ${runtime("Record, RecordMethods", "Record.sol")}
     ${runtime("StoreSwitch", "StoreSwitch.sol")}
     ${runtime("ResourceId", "ResourceId.sol")}
     ${runtime("FieldLayout", "FieldLayout.sol")}
@@ -87,10 +87,10 @@ function renderImports(table: TableCodegen): string {
     ${runtime("EncodedLengths, EncodedLengthsLib", "EncodedLengths.sol")}
     ${hasStatic ? runtime("Bytes", "Bytes.sol") : ""}
     ${dynamicFields.length ? runtime("SliceLib", "Slice.sol") : ""}
-    ${dynamicFields.length ? runtime("DynamicRange", "v3/fields/_dynamic.sol") : ""}
+    ${dynamicFields.length ? runtime("DynamicRange", "fields/_dynamic.sol") : ""}
     ${hasArray ? runtime("EncodeArray", "tightcoder/EncodeArray.sol") : ""}
-    ${builtinHandles.map((handle) => runtime(`${handle}, ${handle}Lib`, `v3/fields/${handle}.sol`))}
-    ${primitiveHandles.map((handle) => runtime(handle, `v3/fields/${handle}.sol`))}
+    ${builtinHandles.map((handle) => runtime(`${handle}, ${handle}Lib`, `fields/${handle}.sol`))}
+    ${primitiveHandles.map((handle) => runtime(handle, `fields/${handle}.sol`))}
     ${userHandles.map((handle) => `import { ${handle}, ${handle}Lib } from "./${handle}.sol";`)}
     ${udvtImports}
     ${table.imports.map(({ symbol, path }) => `import { ${symbol} } from "${path}";`)}
